@@ -2,7 +2,42 @@ import numpy as np
 from itertools import product
 from numba import jit,njit,int32,float32
 
-@njit
+@njit(cache=True)
+def dot6(a, b):
+    return (a[0]*b[0]+
+            a[3]*b[3]+
+            a[5]*b[5]+
+            2.0*a[1]*b[1]+
+            2.0*a[2]*b[2]+
+            2.0*a[4]*b[4])
+
+@njit(cache=True)
+def dot10(a, b):
+    coeff = np.zeros(10, np.float32)
+    coeff[0]=1
+    coeff[1]=3
+    coeff[2]=3
+    coeff[3]=1
+    coeff[4]=3
+    coeff[5]=6
+    coeff[6]=3
+    coeff[7]=3
+    coeff[8]=3
+    coeff[9]=1
+    coeff*=a*b
+    return coeff.sum()
+
+#@njit(cache=True)
+def ten6toMat(a):
+    ret = np.zeros((3,3), np.float32)
+    ret[[0,1,2],[0,1,2]] = a[[0, 3, 5]]
+    ret[[0,1],[1,0]] = a[1]
+    ret[[0,2],[2,0]] = a[2]
+    ret[[1,2],[2,1]] = a[4]
+    return ret
+    
+            
+@njit(cache=True)
 def randomQuaternion(wiggleRate):
     result = np.zeros(4, dtype=np.float32)
 
@@ -31,17 +66,17 @@ def randomQuaternion(wiggleRate):
     result[3]=wiggleRate*y4*sr;
     return result
 
-@njit
+@njit(cache=True)
 def randomUniformQuaternion():
     return randomQuaternion(1)
 
-@njit
-def initializeRandomQuaternions(orientation):
-    for i in np.ndindex(orientation.shape[:-1]):
-        orientation[i] = randomUniformQuaternion()
+@njit(cache=True)
+def initializeRandomQuaternions(xlattice):
+    for i in np.ndindex(xlattice.shape[:-1]):
+        xlattice[i] = randomUniformQuaternion()
 
-@njit
-def getPropertiesFromOrientation(x):
+@njit(cache=True)
+def getPropertiesFromOrientation(x, parity):
     x11 = x[1] * x[1]
     x22 = x[2] * x[2]
     x33 = x[3] * x[3]
@@ -52,20 +87,88 @@ def getPropertiesFromOrientation(x):
     x13 = x[1] * x[3]
     x23 = x[2] * x[3]
 
-    e = np.zeros((3,3), dtype=np.float32)
+    ex = [2 * (-x22 - x33 + 0.5), 2 * (x12 + x03), 2 * (x13 - x02)]
+    ey = [2 * (x12 - x03), 2 * (-x11 - x33 + 0.5), 2 * (x01 + x23)]
+    ez = [2 * (x02 + x13), 2 * (-x01 + x23), 2 * (-x22 - x11 + 0.5)]
 
-    e[:,0] = [2 * (-x22 - x33 + 0.5), 2 * (x12 + x03), 2 * (x13 - x02)]
-    e[:,1] = [2 * (x12 - x03), 2 * (-x11 - x33 + 0.5), 2 * (x01 + x23)]
-    e[:,2] = [2 * (x02 + x13), 2 * (-x01 + x23), 2 * (-x22 - x11 + 0.5)]
-    return e
-    # Qx = np.outer(e[:,0], e[:,0])
-    # Qy = np.outer(e[:,1], e[:,1])
-    # Qz = np.outer(e[:,2], e[:,2])
+    xx = np.zeros(6, np.float32)
+    yy = np.zeros(6, np.float32)
+    zz = np.zeros(6, np.float32)
 
-    # return e, Qx, Qy, Qz
+    xx[0] = ex[0] * ex[0]
+    xx[1] = ex[0] * ex[1]
+    xx[2] = ex[0] * ex[2]
+    xx[3] = ex[1] * ex[1]
+    xx[4] = ex[1] * ex[2]
+    xx[5] = ex[2] * ex[2]
 
-@njit
-def getNeighbors(center, orientation):
+    yy[0] = ey[0] * ey[0]
+    yy[1] = ey[0] * ey[1]
+    yy[2] = ey[0] * ey[2]
+    yy[3] = ey[1] * ey[1]
+    yy[4] = ey[1] * ey[2]
+    yy[5] = ey[2] * ey[2]
+
+    zz[0] = ez[0] * ez[0]
+    zz[1] = ez[0] * ez[1]
+    zz[2] = ez[0] * ez[2]
+    zz[3] = ez[1] * ez[1]
+    zz[4] = ez[1] * ez[2]
+    zz[5] = ez[2] * ez[2]
+
+    I = np.zeros(6, np.float32)
+    I[np.array([0,3,5])] = 1
+    t20 = np.sqrt(3/2)*(zz - 1/3*I)
+    t22 = np.sqrt(1/2)*(xx - yy)
+
+    t32 = np.zeros(10, np.float32)
+
+    #000
+    t32[0] = 6.0 * (ex[0] * ey[0] * ez[0]) # 1
+    #100
+    t32[1] = 2.0 * (ex[0] * ey[0] * ez[1] + # 3
+                    ex[0] * ey[1] * ez[0] +
+                    ex[1] * ey[0] * ez[0])
+    #110
+    t32[2] = 2.0 * (ex[0] * ey[1] * ez[1] + # 3
+                    ex[1] * ey[0] * ez[1] +
+                    ex[1] * ey[1] * ez[0])
+    #111
+    t32[3] = 6.0 * (ex[1] * ey[1] * ez[1]) # 1
+    #200
+    t32[4] = 2.0 * (ex[0] * ey[0] * ez[2] + # 3
+                    ex[0] * ey[2] * ez[0] +
+                    ex[2] * ey[0] * ez[0])
+    #210
+    t32[5] = (ex[0] * ey[1] * ez[2] +     # 6
+              ex[0] * ey[2] * ez[1] +
+              ex[1] * ey[0] * ez[2] +
+              ex[2] * ey[0] * ez[1] +
+              ex[1] * ey[2] * ez[0] +
+              ex[2] * ey[1] * ez[0]
+             )
+    #211
+    t32[6] = 2.0 * (ex[1] * ey[1] * ez[2] + # 3
+                    ex[1] * ey[2] * ez[1] +
+                    ex[2] * ey[1] * ez[1]
+                   )
+    #220
+    t32[7] = 2.0 * (ex[2] * ey[2] * ez[0] + # 3
+                    ex[0] * ey[2] * ez[2] +
+                    ex[2] * ey[0] * ez[2])
+    #221
+    t32[8] = 2.0 * (ex[2] * ey[2] * ez[1] + # 3
+                    ex[1] * ey[2] * ez[2] +
+                    ex[2] * ey[1] * ez[2])
+    #222
+    t32[9] = 6.0 * (ex[2] * ey[2] * ez[2]) # 1
+
+    t32*=(parity/np.sqrt(6))
+
+    return np.array([ex, ey, ez]), t20, t22, t32
+
+@njit(cache=True)
+def getNeighbors(center, lattice):
     ind = np.mod(np.array([
         [ 1,0,0],
         [-1,0,0],
@@ -73,130 +176,171 @@ def getNeighbors(center, orientation):
         [0,-1,0],
         [0,0, 1],
         [0,0,-1]
-    ]) + center, orientation.shape[0])
-    return np.array([
-        list(orientation[ind[0,0], ind[0,1], ind[0,2]]),
-        list(orientation[ind[1,0], ind[1,1], ind[1,2]]),
-        list(orientation[ind[2,0], ind[2,1], ind[2,2]]),
-        list(orientation[ind[3,0], ind[3,1], ind[3,2]]),
-        list(orientation[ind[4,0], ind[4,1], ind[4,2]]),
-        list(orientation[ind[5,0], ind[5,1], ind[5,2]])
-    ], np.float32)
+    ]) + center, lattice.shape[0])
+    n = np.zeros((6, lattice.shape[-1]), lattice.dtype)
+    n[0] = lattice[ind[0,0], ind[0,1], ind[0,2]]
+    n[1] = lattice[ind[1,0], ind[1,1], ind[1,2]]
+    n[2] = lattice[ind[2,0], ind[2,1], ind[2,2]]
+    n[3] = lattice[ind[3,0], ind[3,1], ind[3,2]]
+    n[4] = lattice[ind[4,0], ind[4,1], ind[4,2]]
+    n[5] = lattice[ind[5,0], ind[5,1], ind[5,2]]
+    return n
 
 
-@njit([float32(float32[:],float32[:,:],float32)])
-def getEnergy(x, neighbors, t):
-    e = getPropertiesFromOrientation(x)
+@njit(cache=True)
+def getEnergy(x, p, nx, npi, lam, tau):
+    e, t20, t22, t32 = getPropertiesFromOrientation(x, p)
+    Q = t20 + lam*np.sqrt(2)*t22
     energy = 0
-    for i in range(neighbors.shape[0]):
-        en = getPropertiesFromOrientation(neighbors[i])
-        energy += np.sum(e*en)
-    energy /= -t
+    for i in range(nx.shape[0]):
+        ei, t20i, t22i, t32i = getPropertiesFromOrientation(nx[i], npi[i])
+        Qi = t20i + lam*np.sqrt(2)*t22i
+        energy += (-dot6(Q,Qi)-tau*dot10(t32,t32i))/2
     return energy
 
-# particle = np.dtype({
-#     'names': ['index','x'],
-#     'formats': [ (np.int, (3,)), (np.float32, (4,))]
-# })
+@njit(cache=True)
+def metropolis(dE, temperature):
+    if dE < 0:
+        return True
+    else:
+        if np.random.random() < np.exp(-dE/temperature):
+            return True
+    return False
 
-np.random.seed(42)
-L = 9
-#orientation = np.zeros((L,L,L), dtype=particle)
-orientation = np.zeros((L,L,L,4), dtype=np.float32)
-energy = np.zeros((L,L,L), dtype=np.float32)
-basis = np.zeros((L,L,L,3,3), dtype=np.float32)
-ind = np.array(list(np.ndindex((L,L,L))))
-initializeRandomQuaternions(orientation)
-temperature = 2
-wiggleRate = 0.1
+@njit(cache=True)
+def wiggleQuaternion(x, wiggleRate):
+    dx = randomQuaternion(wiggleRate)
+    x_ = x.copy()
+    x_ += dx
+    x_ /= np.linalg.norm(x_)
+    return x_
 
-meanEnergy = np.array([0], np.float32)
-wiglleRateValues = np.array([wiggleRate], np.float32)
+@njit(cache=True)
+def fluctuation(values):
+    fluct = np.zeros_like(values)
+    for i in range(fluct.size):
+        e = np.random.choice(values, values.size)
+        e2 = e*e
+        fluct[i] = (e2.mean()-e.mean()**2)
+    return fluct.mean()
 
 @jit(forceobj=True,nopython=False,parallel=True)
-def doOrientationSweep(orientation, indexes):
-    global energy, basis, wiggleRate
+def doOrientationSweep(lattice, indexes, temperature, lam, tau):
     for _i in indexes:
-        i=tuple(_i)
-        x = orientation[i]
+        particle = lattice[tuple(_i)]
         #nind = getNeighborsIndices(_i, L)
-        neighbors = getNeighbors(_i, orientation)
-        energy1 = getEnergy(x, neighbors, temperature)
+        nx = getNeighbors(_i, lattice['x'])
+        npi = getNeighbors(_i, lattice['p'][...,np.newaxis])
+        energy1 = getEnergy(particle['x'], particle['p'], nx, npi, lam=lam, tau=tau)
+        
         # adjust x
-        nx = x.copy()
-        dx = randomQuaternion(wiggleRate)
-        nx += dx
-        nx /= np.linalg.norm(nx)
-        # evaluate change
-        energy2 = getEnergy(nx, neighbors, temperature)
-        if energy2<energy1:
-            orientation[i] = nx
-            energy[i] = energy2
-        else:
-            if np.random.random() < np.exp(-2*(energy2-energy1)):
-                orientation[i] = nx
-                energy[i] = energy2
-        basis[i] = getPropertiesFromOrientation(orientation[i])
+        x_ = wiggleQuaternion(particle['x'], wiggleRate)
+        energy2 = getEnergy(x_, particle['p'], nx, npi, lam=lam, tau=tau)
+        if metropolis(2*(energy2-energy1), temperature):
+            particle['x'] = x_
+            particle['energy'] = energy2
+
+        # adjust p
+        p_ = -particle['p']
+        energy2 = getEnergy(particle['x'], p_, nx, npi, lam=lam, tau=tau)
+        if metropolis(2*(energy2-energy1), temperature):
+            particle['p'] = p_
+            particle['energy'] = energy2
+
+        particle['basis'], particle['t20'], particle['t22'], particle['t32'] = getPropertiesFromOrientation(particle['x'], particle['p'])
     
 
 
-# orientation = np.pad(orientation, 1, mode='wrap')[..., 1:-1]
-# ind = ind.reshape(L,L,L,3)
+particle = np.dtype({
+    'names':   [ 'index',
+                 'x',
+                 'basis',
+                 't20',
+                 't22',
+                 't32',
+                 'p',
+                 'energy',],
+    'formats': [ (np.int, (3,)),
+                 (np.float32, (4,)),
+                 (np.float32, (3,3)),
+                 (np.float32, (6,)),
+                 (np.float32, (6,)),
+                 (np.float32, (10,)),
+                 np.int32,
+                 np.float32
+               ]
+})
 
-# @jit(forceobj=True,nopython=False,parallel=True)
-# def process_subcells(ind, orientation):
-#     for x,y,z in product(range(0,3), range(0,3), range(0,3)):
-#         indexes = ind[x::3,y::3,z::3,:].reshape(-1,3)
-#         doorientationSweep(orientation, indexes)
+np.random.seed(42)
+L = 9
+lattice = np.zeros((L,L,L), dtype=particle)
 
-#from joblib import Parallel, delayed
-#def process_subcells_joblib(ind, orientation, parallel):
-#    parallel(delayed(doorientationSweep)(orientation, ind[x::3,y::3,z::3,:].reshape(-1,3)) for x,y,z in product(range(0,3), range(0,3), range(0,3)))
+##random state
+# initializeRandomQuaternions(lattice['x'])
+# lattice['p'] = np.random.choice([-1,1], L*L*L).reshape(L,L,L)
 
-#with Parallel(n_jobs=27, prefer='threads') as parallel:
+##ordered state
+# lattice['x'] = [1,0,0,0]
+# lattice['p'] = 1
+
+##randomised partially ordered state
+#<parity>~0.5, "mostly" biaxial nematic
+lattice['p'] = np.random.choice([-1,1], lattice.size, p=[0.25,0.75]).reshape(lattice.shape)
+lattice['x'] = [1,0,0,0]
+for i in np.ndindex(lattice.shape):
+    lattice['x'][i] = wiggleQuaternion(lattice['x'][i], 0.02)
+
+lattice['index'] = np.array(list(np.ndindex((L,L,L)))).reshape(L,L,L,3)
+#temperature = 0.776
+temperature = 1.186
+#temperature = 0.5
+lam=0.3
+tau=1
+wiggleRate = 1.1
+
+meanEnergy = np.array([0], np.float32)
+energyVariance = np.array([0], np.float32)
+wiglleRateValues = np.array([wiggleRate], np.float32)
 
 for it in range(10000):
-    indexes = ind[np.random.randint(0, ind.shape[0], ind.shape[0])]
-    doOrientationSweep(orientation, indexes)
-    #process_subcells(ind, orientation)
-    #process_subcells_joblib(ind, orientation)
-    meanEnergy = np.append(meanEnergy,energy.mean())
+    indexes = lattice['index'].reshape(-1,3)[np.random.randint(0, lattice.size, lattice.size)]
+    doOrientationSweep(lattice, indexes, temperature, lam, tau)
+
+    # compute stats
+    meanEnergy = np.append(meanEnergy,lattice['energy'].mean())
+    if it > 100:
+        energyVariance = np.append(energyVariance,lattice.size*fluctuation(meanEnergy[-100:]))
     wiglleRateValues = np.append(wiglleRateValues, wiggleRate)
-    if meanEnergy.size > 11:
-        de = np.diff(meanEnergy, 1)
-        dr = np.diff(wiglleRateValues, 1)
+
+    # adjusting of wiggle rate
+    if it % 10 == 0 and meanEnergy.size > 101:
+        mE = np.array([ m.mean() for m in np.split(meanEnergy[-100:], 4)])
+        mR = np.array([ m.mean() for m in np.split(wiglleRateValues[-100:], 4)])
+        
+        de = np.diff(mE, 1)
+        dr = np.diff(mR, 1)
         efirst = de/dr
-        rfirst = 0.5*(wiglleRateValues[:-1]+ wiglleRateValues[1:])
-        d2e = np.diff(efirst, 1)
-        dr2 = np.diff(rfirst, 1)
-        rsecond = d2e/dr2
-        if rsecond[-10].mean() < 0:
-            wiggleRate *= 1.01
+        etrend = (efirst[-1]-efirst[-2])
+        if etrend < 0:
+            wiggleRate *= 1.1
         else:
-            wiggleRate *= 0.99
-    wiggleRate *= 1 + np.random.normal(scale=0.01)
+            wiggleRate *= 0.9
+    wiggleRate *= 1 + np.random.normal(scale=0.001)
+    
+    # randomly adjust wiggle rate
+    if it % 1000 == 0 and it > 0:
+        wiggleRate = np.random.normal(wiggleRate, scale=1.0)
 
-    if it % 20 == 0 and it > 0:
-        wiggleRate = np.abs(np.random.normal(scale=0.5))
+    # print stats
     if it % 50 == 0:
-        if it>200:
-            de = meanEnergy[-10].mean() - meanEnergy[-200:-180].mean()
-            print(de)
-        print(wiggleRate)
-        w,v = np.linalg.eig(basis.mean(axis=(0,1,2)))
-        print(w)
-        print(meanEnergy[-1])
+        w,v = np.linalg.eig(lattice['basis'].mean(axis=(0,1,2)))
 
+        mQ = lattice['t20'].mean(axis=(0,1,2)) + lam*np.sqrt(2)*lattice['t22'].mean(axis=(0,1,2))
+        mQ = ten6toMat(mQ)
+        qw,qv = np.linalg.eig(mQ)
 
-# print("asdasdasdasdasdasd")
+        q0 = np.sum(np.power(lattice['t20'].mean(axis=(0,1,2)),2))
+        q2 = np.sum(np.power(lattice['t22'].mean(axis=(0,1,2)),2))
+        p = lattice['p'].mean()
 
-# np.random.seed(42)
-# initializeRandomQuaternions(orientation)
-# orientation = np.pad(orientation, 1, mode='wrap')[..., 1:-1]
-# ind = ind.reshape(L,L,L,3)
-
-# for _ in range(100):
-#     for x,y,z in product(range(0,3), range(0,3), range(0,3)):
-#         indexes = ind[x::3,y::3,z::3,:].reshape(-1,3)
-#         doorientationSweep(orientation, indexes)
-#     print(energy.mean(), basis.mean(axis=(0,1,2)))
+        print(f'r={wiggleRate:.3f}, <E>={meanEnergy[-1]:.2f}, var(E)={energyVariance[-1]:.4f}, q0={q0:.6f}, q2={q2:.6f}, p={p:.4f}, qev={qw}')
