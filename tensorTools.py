@@ -1,8 +1,9 @@
 import numpy as np
 from numba import njit
 
+
 @njit(cache=True)
-def T20AndT22In6Coordinates(ex,ey,ez):
+def T20AndT22In6Coordinates(ex, ey, ez):
     """
     Calculate the T20 and T22 tensors using only 6
     independent components.
@@ -41,17 +42,19 @@ def T20AndT22In6Coordinates(ex,ey,ez):
 
     return t20, t22
 
+
 def ten6toMat(a):
     """
     Convert a symmetric tensor represented using 6
     independent components to a 3x3 matrix
     """
-    ret = np.zeros((3,3), np.float32)
-    ret[[0,1,2],[0,1,2]] = a[[0, 3, 5]]
-    ret[[0,1],[1,0]] = a[1]
-    ret[[0,2],[2,0]] = a[2]
-    ret[[1,2],[2,1]] = a[4]
+    ret = np.zeros((3, 3), np.float32)
+    ret[[0, 1, 2], [0, 1, 2]] = a[[0, 3, 5]]
+    ret[[0, 1], [1, 0]] = a[1]
+    ret[[0, 2], [2, 0]] = a[2]
+    ret[[1, 2], [2, 1]] = a[4]
     return ret
+
 
 @njit(cache=True)
 def dot6(a, b):
@@ -60,12 +63,13 @@ def dot6(a, b):
     6 non-zero coefficients of a symmetric
     tensor.
     """
-    return (a[0]*b[0]+
-            a[3]*b[3]+
-            a[5]*b[5]+
-            2.0*a[1]*b[1]+
-            2.0*a[2]*b[2]+
+    return (a[0]*b[0] +
+            a[3]*b[3] +
+            a[5]*b[5] +
+            2.0*a[1]*b[1] +
+            2.0*a[2]*b[2] +
             2.0*a[4]*b[4])
+
 
 @njit(cache=True)
 def dot10(a, b):
@@ -75,18 +79,19 @@ def dot10(a, b):
     tensor.
     """
     coeff = np.zeros(10, np.float32)
-    coeff[0]=1
-    coeff[1]=3
-    coeff[2]=3
-    coeff[3]=1
-    coeff[4]=3
-    coeff[5]=6
-    coeff[6]=3
-    coeff[7]=3
-    coeff[8]=3
-    coeff[9]=1
-    coeff*=a*b
+    coeff[0] = 1
+    coeff[1] = 3
+    coeff[2] = 3
+    coeff[3] = 1
+    coeff[4] = 3
+    coeff[5] = 6
+    coeff[6] = 3
+    coeff[7] = 3
+    coeff[8] = 3
+    coeff[9] = 1
+    coeff *= a*b
     return coeff.sum()
+
 
 @njit(cache=True)
 def quaternionToOrientation(x):
@@ -107,4 +112,4 @@ def quaternionToOrientation(x):
     ex = np.array([2 * (-x22 - x33 + 0.5), 2 * (x12 + x03), 2 * (x13 - x02)])
     ey = np.array([2 * (x12 - x03), 2 * (-x11 - x33 + 0.5), 2 * (x01 + x23)])
     ez = np.array([2 * (x02 + x13), 2 * (-x01 + x23), 2 * (-x22 - x11 + 0.5)])
-    return ex,ey,ez
+    return ex, ey, ez

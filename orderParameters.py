@@ -4,6 +4,7 @@ from statistical import fluctuation
 from tensorTools import ten6toMat, dot10
 from definitions import gatheredOrderParameters, LatticeState
 
+
 def calculateOrderParameters(state: LatticeState):
     """
     Calculate instantaneous order parameters after
