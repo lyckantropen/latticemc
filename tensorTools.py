@@ -1,6 +1,11 @@
 import numpy as np
 from numba import njit
 
+SQRT2=np.sqrt(2)
+SQRT6=np.sqrt(6)
+SQRT32=np.sqrt(3/2)
+SQRT12=np.sqrt(1/2)
+SQRT16=np.sqrt(1/6)
 
 @njit(cache=True)
 def T20AndT22In6Coordinates(ex, ey, ez):
@@ -37,8 +42,8 @@ def T20AndT22In6Coordinates(ex, ey, ez):
     I[0] = 1
     I[3] = 1
     I[5] = 1
-    t20 = np.sqrt(3/2)*(zz - 1/3*I)
-    t22 = np.sqrt(1/2)*(xx - yy)
+    t20 = SQRT32*(zz - 1/3*I)
+    t22 = SQRT12*(xx - yy)
 
     return t20, t22
 
@@ -109,7 +114,7 @@ def quaternionToOrientation(x):
     x13 = x[1] * x[3]
     x23 = x[2] * x[3]
 
-    ex = np.array([2 * (-x22 - x33 + 0.5), 2 * (x12 + x03), 2 * (x13 - x02)])
-    ey = np.array([2 * (x12 - x03), 2 * (-x11 - x33 + 0.5), 2 * (x01 + x23)])
-    ez = np.array([2 * (x02 + x13), 2 * (-x01 + x23), 2 * (-x22 - x11 + 0.5)])
+    ex = np.array([2 * (-x22 - x33 + 0.5), 2 * (x12 + x03), 2 * (x13 - x02)], dtype=np.float32)
+    ey = np.array([2 * (x12 - x03), 2 * (-x11 - x33 + 0.5), 2 * (x01 + x23)], dtype=np.float32)
+    ez = np.array([2 * (x02 + x13), 2 * (-x01 + x23), 2 * (-x22 - x11 + 0.5)], dtype=np.float32)
     return ex, ey, ez

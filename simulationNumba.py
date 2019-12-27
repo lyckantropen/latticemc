@@ -6,8 +6,7 @@ import numpy as np
 from numba import jit, njit
 from randomQuaternion import randomQuaternion, wiggleQuaternion
 from definitions import particle, Lattice, LatticeState
-from tensorTools import dot6, dot10, T20AndT22In6Coordinates, quaternionToOrientation
-
+from tensorTools import dot6, dot10, T20AndT22In6Coordinates, quaternionToOrientation, SQRT16, SQRT2
 
 @njit(cache=True)
 def _getPropertiesFromOrientation(x, parity):
@@ -57,7 +56,7 @@ def _getPropertiesFromOrientation(x, parity):
     # 222
     t32[9] = 6.0 * (ex[2] * ey[2] * ez[2])  # 1
 
-    t32 *= (parity/np.sqrt(6))
+    t32 *= (parity*SQRT16)
 
     return ex, ey, ez, t32
 
@@ -95,12 +94,12 @@ def _getEnergy(x, p, nx, npi, lam, tau):
     """
     ex, ey, ez, t32 = _getPropertiesFromOrientation(x, p)
     t20, t22 = T20AndT22In6Coordinates(ex, ey, ez)
-    Q = t20 + lam*np.sqrt(2)*t22
+    Q = t20 + lam*SQRT2*t22
     energy = 0
     for i in range(nx.shape[0]):
         exi, eyi, ezi, t32i = _getPropertiesFromOrientation(nx[i], npi[i])
         t20i, t22i = T20AndT22In6Coordinates(exi, eyi, ezi)
-        Qi = t20i + lam*np.sqrt(2)*t22i
+        Qi = t20i + lam*SQRT2*t22i
         energy += (-dot6(Q, Qi)-tau*dot10(t32, t32i))/2
 
     return energy
@@ -126,7 +125,7 @@ def _doOrientationSweep(lattice, indexes, temperature, lam, tau, wiggleRate):
     Execute the Metropolis microstate evolution of 'lattice'
     of particles specified by 'indexes' at given temperature, according
     to the PRE79 parameters 'lam' (lamba) and 'tau'. The orientation is
-    updated using a random walk with radius 'wiggleRate'. 
+    updated using a random walk with radius 'wiggleRate'.
     """
     for _i in indexes:
         particle = lattice[tuple(_i)]
@@ -151,11 +150,11 @@ def _doOrientationSweep(lattice, indexes, temperature, lam, tau, wiggleRate):
 
         # instead of using the same t20 and t22 tensors, calculate depending on lambda parameter
         a, b, c, particle['t32'] = _getPropertiesFromOrientation(particle['x'], particle['p'])
-        if lam < (np.sqrt(1/6)-1e-3):
+        if lam < (SQRT16-1e-3):
             ex, ey, ez = a, b, c
-        if lam > (np.sqrt(1/6)+1e-3):
+        if lam > (SQRT16+1e-3):
             ex, ey, ez = c, a, b
-        if (lam - np.sqrt(1/6)) < 1e-3:
+        if (lam - SQRT16) < 1e-3:
             ex, ey, ez = b, c, a
         particle['t20'], particle['t22'] = T20AndT22In6Coordinates(ex, ey, ez)
 

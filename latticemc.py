@@ -24,7 +24,7 @@ calculators = [
 ]
 
 try:
-    for it in range(1000):
+    for it in range(10000):
         simulationNumba.doLatticeStateUpdate(state)
 
         for calc in calculators:
