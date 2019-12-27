@@ -1,14 +1,17 @@
 import numpy as np
-from definitions import particle, Lattice, LatticeState
-from latticeTools import initializePartiallyOrdered
-from statistical import fluctuation, ten6toMat
+from definitions import particle, Lattice, LatticeState, gatheredOrderParameters
+from latticeTools import initializePartiallyOrdered, initializeRandom
+from statistical import fluctuation
+from orderParameters import calculateOrderParameters
+from randomQuaternion import randomQuaternion
 import simulationNumba
 
 
 lattice = Lattice(9,9,9)
-initializePartiallyOrdered(lattice)
+initializePartiallyOrdered(lattice, x=randomQuaternion(1))
+#initializeRandom(lattice)
 
-state = LatticeState(temperature=1.186, lam=0.3, tau=1, lattice=lattice)
+state = LatticeState(temperature=0.9, lam=0.3, tau=1, lattice=lattice)
 energyVariance = np.empty(1, np.float32)
 
 for it in range(10000):
@@ -39,12 +42,7 @@ for it in range(10000):
 
     # print stats
     if it % 50 == 0:
-        mQ = state.latticeAverages['t20'][-1] + state.lam*np.sqrt(2)*state.latticeAverages['t22'][-1]
-        mQ = ten6toMat(mQ)
-        qw,qv = np.linalg.eig(mQ)
+        op = calculateOrderParameters(state)
+        s = ','.join([ f'{name}={op[name][0]}' for name in gatheredOrderParameters.fields.keys()])
 
-        q0 = np.sum(np.power(state.latticeAverages['t20'][-1],2))
-        q2 = np.sum(np.power(state.latticeAverages['t22'][-1],2))
-        p = state.latticeAverages['p'][-1]
-
-        print(f'r={state.wiggleRate:.3f}, <E>={state.latticeAverages["energy"][-1]:.2f}, var(E)={energyVariance[-1]:.4f}, q0={q0:.6f}, q2={q2:.6f}, p={p:.4f}, qev={qw}')
+        print(s)

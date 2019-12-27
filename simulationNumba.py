@@ -6,88 +6,15 @@ import numpy as np
 from numba import jit,njit
 from randomQuaternion import randomQuaternion, wiggleQuaternion
 from definitions import particle, Lattice, LatticeState
-
-
-@njit(cache=True)
-def _dot6(a, b):
-    """
-    Rank-2 contraction using only the
-    6 non-zero coefficients of a symmetric
-    tensor.
-    """
-    return (a[0]*b[0]+
-            a[3]*b[3]+
-            a[5]*b[5]+
-            2.0*a[1]*b[1]+
-            2.0*a[2]*b[2]+
-            2.0*a[4]*b[4])
-
-@njit(cache=True)
-def _dot10(a, b):
-    """
-    Rank-3 contraction using only the
-    10 non-zero coefficients of a symmetric
-    tensor.
-    """
-    coeff = np.zeros(10, np.float32)
-    coeff[0]=1
-    coeff[1]=3
-    coeff[2]=3
-    coeff[3]=1
-    coeff[4]=3
-    coeff[5]=6
-    coeff[6]=3
-    coeff[7]=3
-    coeff[8]=3
-    coeff[9]=1
-    coeff*=a*b
-    return coeff.sum()
+from tensorTools import dot6, dot10, T20AndT22In6Coordinates, quaternionToOrientation
 
 @njit(cache=True)
 def _getPropertiesFromOrientation(x, parity):
-    x11 = x[1] * x[1]
-    x22 = x[2] * x[2]
-    x33 = x[3] * x[3]
-    x01 = x[0] * x[1]
-    x02 = x[0] * x[2]
-    x03 = x[0] * x[3]
-    x12 = x[1] * x[2]
-    x13 = x[1] * x[3]
-    x23 = x[2] * x[3]
-
-    ex = [2 * (-x22 - x33 + 0.5), 2 * (x12 + x03), 2 * (x13 - x02)]
-    ey = [2 * (x12 - x03), 2 * (-x11 - x33 + 0.5), 2 * (x01 + x23)]
-    ez = [2 * (x02 + x13), 2 * (-x01 + x23), 2 * (-x22 - x11 + 0.5)]
-
-    xx = np.zeros(6, np.float32)
-    yy = np.zeros(6, np.float32)
-    zz = np.zeros(6, np.float32)
-
-    xx[0] = ex[0] * ex[0]
-    xx[1] = ex[0] * ex[1]
-    xx[2] = ex[0] * ex[2]
-    xx[3] = ex[1] * ex[1]
-    xx[4] = ex[1] * ex[2]
-    xx[5] = ex[2] * ex[2]
-
-    yy[0] = ey[0] * ey[0]
-    yy[1] = ey[0] * ey[1]
-    yy[2] = ey[0] * ey[2]
-    yy[3] = ey[1] * ey[1]
-    yy[4] = ey[1] * ey[2]
-    yy[5] = ey[2] * ey[2]
-
-    zz[0] = ez[0] * ez[0]
-    zz[1] = ez[0] * ez[1]
-    zz[2] = ez[0] * ez[2]
-    zz[3] = ez[1] * ez[1]
-    zz[4] = ez[1] * ez[2]
-    zz[5] = ez[2] * ez[2]
-
-    I = np.zeros(6, np.float32)
-    I[np.array([0,3,5])] = 1
-    t20 = np.sqrt(3/2)*(zz - 1/3*I)
-    t22 = np.sqrt(1/2)*(xx - yy)
+    """
+    Calculate per-particle properties from the orientation
+    quaternion 'x' and parity 'p'. Returns ex, ey, ez, t32.
+    """
+    ex,ey,ez = quaternionToOrientation(x)
 
     t32 = np.zeros(10, np.float32)
 
@@ -133,10 +60,15 @@ def _getPropertiesFromOrientation(x, parity):
 
     t32*=(parity/np.sqrt(6))
 
-    return t20, t22, t32
+    return ex, ey, ez, t32
 
 @njit(cache=True)
 def _getNeighbors(center, lattice):
+    """
+    For a given 3-dimensional 'center' index and a 3d array
+    'lattice', return the values of 'lattice' at the nearest
+    neighbor sites, obeying periodic boundary conditions.
+    """
     ind = np.mod(np.array([
         [ 1,0,0],
         [-1,0,0],
@@ -157,17 +89,28 @@ def _getNeighbors(center, lattice):
 
 @njit(cache=True)
 def _getEnergy(x, p, nx, npi, lam, tau):
-    t20, t22, t32 = _getPropertiesFromOrientation(x, p)
+    """
+    Calculate the per-particle interaction energy
+    according to the Hamiltonian postulated in PRE79.
+    """
+    ex, ey, ez, t32 = _getPropertiesFromOrientation(x, p)
+    t20, t22 = T20AndT22In6Coordinates(ex, ey, ez)
     Q = t20 + lam*np.sqrt(2)*t22
     energy = 0
     for i in range(nx.shape[0]):
-        t20i, t22i, t32i = _getPropertiesFromOrientation(nx[i], npi[i])
+        exi, eyi, ezi, t32i = _getPropertiesFromOrientation(nx[i], npi[i])
+        t20i, t22i = T20AndT22In6Coordinates(exi, eyi, ezi)
         Qi = t20i + lam*np.sqrt(2)*t22i
-        energy += (-_dot6(Q,Qi)-tau*_dot10(t32,t32i))/2
+        energy += (-dot6(Q,Qi)-tau*dot10(t32,t32i))/2
+
     return energy
 
 @njit(cache=True)
 def _metropolis(dE, temperature):
+    """
+    Decide the microstate evolution according to the
+    Metropolis algorithm at given temperature.
+    """
     if dE < 0:
         return True
     else:
@@ -177,6 +120,12 @@ def _metropolis(dE, temperature):
 
 @jit(forceobj=True,nopython=False,parallel=True)
 def _doOrientationSweep(lattice, indexes, temperature, lam, tau, wiggleRate):
+    """
+    Execute the Metropolis microstate evolution of 'lattice'
+    of particles specified by 'indexes' at given temperature, according
+    to the PRE79 parameters 'lam' (lamba) and 'tau'. The orientation is
+    updated using a random walk with radius 'wiggleRate'. 
+    """
     for _i in indexes:
         particle = lattice[tuple(_i)]
         nx = _getNeighbors(_i, lattice['x'])
@@ -191,16 +140,30 @@ def _doOrientationSweep(lattice, indexes, temperature, lam, tau, wiggleRate):
             particle['energy'] = energy2
 
         # adjust p
-        p_ = -particle['p']
-        energy2 = _getEnergy(particle['x'], p_, nx, npi, lam=lam, tau=tau)
-        if _metropolis(2*(energy2-energy1), temperature):
-            particle['p'] = p_
-            particle['energy'] = energy2
+        if tau != 0:
+            p_ = -particle['p']
+            energy2 = _getEnergy(particle['x'], p_, nx, npi, lam=lam, tau=tau)
+            if _metropolis(2*(energy2-energy1), temperature):
+                particle['p'] = p_
+                particle['energy'] = energy2
 
-        particle['t20'], particle['t22'], particle['t32'] = _getPropertiesFromOrientation(particle['x'], particle['p'])
+        # instead of using the same t20 and t22 tensors, calculate depending on lambda parameter
+        a,b,c,particle['t32'] = _getPropertiesFromOrientation(particle['x'], particle['p'])
+        if lam < (np.sqrt(1/6)-1e-3):
+            ex,ey,ez = a,b,c
+        if lam > (np.sqrt(1/6)+1e-3):
+            ex,ey,ez = c,a,b
+        if (lam - np.sqrt(1/6)) < 1e-3:
+            ex,ey,ez = b,c,a
+        particle['t20'], particle['t22'] = T20AndT22In6Coordinates(ex, ey, ez)
+        
 
 @jit(forceobj=True,nopython=False,cache=True)
 def _getLatticeAverages(lattice):
+    """
+    Calculate state average of per-particle properties
+    as specified in the 'particle' data type.
+    """
     avg = np.zeros(1, dtype=particle)
     avg['x'] = lattice['x'].mean(axis=(0,1,2))
     avg['t20'] = lattice['t20'].mean(axis=(0,1,2))
@@ -212,6 +175,12 @@ def _getLatticeAverages(lattice):
 
 @jit(forceobj=True,nopython=False,cache=True)
 def doLatticeStateUpdate(state: LatticeState):
+    """
+    Perform one update of the lattice state, updating
+    particles at random (some particles can be updated
+    many times, others ommited). Then, update the 
+    state averages of per-particle properties.
+    """
     # update particles at random
     indexes = state.lattice.particles['index'].reshape(-1,3)[np.random.randint(0, state.lattice.particles.size, state.lattice.particles.size)]
     _doOrientationSweep(state.lattice.particles, indexes, state.temperature, state.lam, state.tau, state.wiggleRate)
