@@ -1,6 +1,7 @@
 import numpy as np
 from dataclasses import dataclass, field
 
+# per-particle properties data type
 particle = np.dtype({
     'names':   [ 'index',
                  'x',
@@ -19,6 +20,17 @@ particle = np.dtype({
                ]
 }, align=True)
 
+# data type to store the order parameters
+gatheredOrderParameters = np.dtype([
+    ('energy', float),
+    ('q0', float),
+    ('q2', float),
+    ('w', float),
+    ('p', float),
+    ('d322', float)
+])
+
+# declaration of the above for use in OpenCL
 particle_cdecl = """
 typedef struct __attribute__ ((packed)) {
     ushort3 index;
@@ -33,17 +45,23 @@ typedef struct __attribute__ ((packed)) {
 
 @dataclass
 class Lattice:
+    """
+    Represents the molecular lattice
+    """
     X: int
     Y: int
     Z: int
     particles: np.ndarray = field(default=None)
 
     def __post_init__(self):
-        self.particles = np.zeros((self.Z, self.Y, self.X), dtype=particle)
-        self.particles['index'] = np.array(list(np.ndindex((self.Z, self.Y, self.X)))).reshape(self.Z, self.Y, self.X,3)
+        self.particles = np.zeros((self.X, self.Y, self.Z), dtype=particle)
+        self.particles['index'] = np.array(list(np.ndindex((self.X, self.Y, self.Z)))).reshape(self.X, self.Y, self.Z,3)
 
 @dataclass
 class LatticeState:
+    """
+    Represents a given state of a molecular lattice at a given point in the simulation
+    """
     temperature: float
     tau: float
     lam: float
@@ -53,4 +71,3 @@ class LatticeState:
     wiggleRate: float = 1
     latticeAverages: np.ndarray = field(default_factory=lambda: np.empty(1, dtype=particle))
     wiggleRateValues: np.ndarray = field(default_factory=lambda: np.empty(1, dtype=np.float32))
-
