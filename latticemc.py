@@ -1,8 +1,8 @@
-import numpy as np
 from definitions import Lattice, LatticeState, OrderParametersHistory
 from latticeTools import initializePartiallyOrdered, initializeRandom
 from randomQuaternion import randomQuaternion
 from calculators import OrderParametersCalculator, FluctuationsCalculator, DerivativeWiggleRateAdjustor, RandomWiggleRateAdjustor
+from failsafe import failsafeSaveSimulation
 import simulationNumba
 
 
@@ -23,8 +23,12 @@ calculators = [
     RandomWiggleRateAdjustor(scale=1.0, resetValue=1.0, howOften=1000, sinceWhen=1000),
 ]
 
-for it in range(10000):
-    simulationNumba.doLatticeStateUpdate(state)
+try:
+    for it in range(1000):
+        simulationNumba.doLatticeStateUpdate(state)
 
-    for calc in calculators:
-        calc.perform(state)
+        for calc in calculators:
+            calc.perform(state)
+
+except Exception as e:
+    failsafeSaveSimulation(e, state, orderParametersHistory)
