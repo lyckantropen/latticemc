@@ -1,54 +1,18 @@
 import numpy as np
-from numba import njit
-from itertools import product
 from definitions import particle, Lattice, LatticeState
-from randomQuaternion import randomQuaternion, wiggleQuaternion
-import simulation_numba
+from latticeTools import initializePartiallyOrdered
+from statistical import fluctuation, ten6toMat
+import simulationNumba
 
-def ten6toMat(a):
-    ret = np.zeros((3,3), np.float32)
-    ret[[0,1,2],[0,1,2]] = a[[0, 3, 5]]
-    ret[[0,1],[1,0]] = a[1]
-    ret[[0,2],[2,0]] = a[2]
-    ret[[1,2],[2,1]] = a[4]
-    return ret
-    
-@njit(cache=True)
-def initializeRandomQuaternions(xlattice):
-    for i in np.ndindex(xlattice.shape[:-1]):
-        xlattice[i] = randomQuaternion(1)
-
-@njit(cache=True)
-def fluctuation(values):
-    fluct = np.zeros_like(values)
-    for i in range(fluct.size):
-        e = np.random.choice(values, values.size)
-        e2 = e*e
-        fluct[i] = (e2.mean()-e.mean()**2)
-    return fluct.mean()
 
 lattice = Lattice(9,9,9)
-
-##random state
-# initializeRandomQuaternions(lattice.particles['x'])
-# lattice.particles['p'] = np.random.choice([-1,1], L*L*L).reshape(L,L,L)
-
-##ordered state
-# lattice.particles['x'] = [1,0,0,0]
-# lattice.particles['p'] = 1
-
-##randomised partially ordered state
-#<parity>~0.5, "mostly" biaxial nematic
-lattice.particles['p'] = np.random.choice([-1,1], lattice.particles.size, p=[0.25,0.75]).reshape(lattice.particles.shape)
-lattice.particles['x'] = [1,0,0,0]
-for i in np.ndindex(lattice.particles.shape):
-    lattice.particles['x'][i] = wiggleQuaternion(lattice.particles['x'][i], 0.02)
+initializePartiallyOrdered(lattice)
 
 state = LatticeState(temperature=1.186, lam=0.3, tau=1, lattice=lattice)
 energyVariance = np.empty(1, np.float32)
 
 for it in range(10000):
-    simulation_numba.doLatticeStateUpdate(state)
+    simulationNumba.doLatticeStateUpdate(state)
 
     if it > 100:
         energyVariance = np.append(energyVariance,lattice.particles.size*fluctuation(state.latticeAverages['energy'][-100:]))
