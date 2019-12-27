@@ -132,8 +132,7 @@ def _doOrientationSweep(lattice, indexes, temperature, lam, tau, wiggleRate):
         particle = lattice[tuple(_i)]
         nx = _getNeighbors(_i, lattice['x'])
         npi = _getNeighbors(_i, lattice['p'][..., np.newaxis])
-        energy1 = _getEnergy(
-            particle['x'], particle['p'], nx, npi, lam=lam, tau=tau)
+        energy1 = _getEnergy(particle['x'], particle['p'], nx, npi, lam=lam, tau=tau)
 
         # adjust x
         x_ = wiggleQuaternion(particle['x'], wiggleRate)
