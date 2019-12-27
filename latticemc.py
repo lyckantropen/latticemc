@@ -1,6 +1,7 @@
 import numpy as np
 from itertools import product
 from numba import jit,njit,int32,float32
+from definitions import *
 
 @njit(cache=True)
 def dot6(a, b):
@@ -225,7 +226,7 @@ def fluctuation(values):
     return fluct.mean()
 
 @jit(forceobj=True,nopython=False,parallel=True)
-def doOrientationSweep(lattice, indexes, temperature, lam, tau):
+def doOrientationSweep(lattice, indexes, temperature, lam, tau, wiggleRate):
     for _i in indexes:
         particle = lattice[tuple(_i)]
         nx = getNeighbors(_i, lattice['x'])
@@ -249,36 +250,6 @@ def doOrientationSweep(lattice, indexes, temperature, lam, tau):
         particle['t20'], particle['t22'], particle['t32'] = getPropertiesFromOrientation(particle['x'], particle['p'])
 
 
-particle = np.dtype({
-    'names':   [ 'index',
-                 'x',
-                 't20',
-                 't22',
-                 't32',
-                 'p',
-                 'energy',],
-    'formats': [ (np.int, (3,)),
-                 (np.float32, (4,)),
-                 (np.float32, (6,)),
-                 (np.float32, (6,)),
-                 (np.float32, (10,)),
-                 np.float32,
-                 np.float32
-               ]
-}, align=True)
-particle_cdecl = """
-typedef struct __attribute__ ((packed)) {
-    ushort3 index;
-    float4  x;
-    float  t20[6];
-    float  t22[6];
-    float  t32[10];
-    float p;
-    float energy;
-} particle;
-"""
-
-
 def getLatticeAverages(lattice):
     avg = np.zeros(1, dtype=particle)
     avg['x'] = lattice['x'].mean(axis=(0,1,2))
@@ -291,8 +262,7 @@ def getLatticeAverages(lattice):
 
 
 np.random.seed(42)
-L = 9
-lattice = np.zeros((L,L,L), dtype=particle)
+lattice = Lattice(9,9,9)
 
 ##random state
 # initializeRandomQuaternions(lattice['x'])
@@ -304,60 +274,53 @@ lattice = np.zeros((L,L,L), dtype=particle)
 
 ##randomised partially ordered state
 #<parity>~0.5, "mostly" biaxial nematic
-lattice['p'] = np.random.choice([-1,1], lattice.size, p=[0.25,0.75]).reshape(lattice.shape)
-lattice['x'] = [1,0,0,0]
-for i in np.ndindex(lattice.shape):
-    lattice['x'][i] = wiggleQuaternion(lattice['x'][i], 0.02)
+lattice.particles['p'] = np.random.choice([-1,1], lattice.particles.size, p=[0.25,0.75]).reshape(lattice.particles.shape)
+lattice.particles['x'] = [1,0,0,0]
+for i in np.ndindex(lattice.particles.shape):
+    lattice.particles['x'][i] = wiggleQuaternion(lattice.particles['x'][i], 0.02)
 
-lattice['index'] = np.array(list(np.ndindex((L,L,L)))).reshape(L,L,L,3)
-#temperature = 0.776
-temperature = 1.186
-#temperature = 0.5
-lam=0.3
-tau=1
-wiggleRate = 1.1
+state = LatticeState(temperature=1.186, lam=0.3, tau=1, lattice=lattice)
 
-latticeAverages = np.empty(1, dtype=particle)
 energyVariance = np.empty(1, np.float32)
-wiglleRateValues = np.empty(1, np.float32)
 
 for it in range(10000):
-    indexes = lattice['index'].reshape(-1,3)[np.random.randint(0, lattice.size, lattice.size)]
-    doOrientationSweep(lattice, indexes, temperature, lam, tau)
-    
+    indexes = lattice.particles['index'].reshape(-1,3)[np.random.randint(0, lattice.particles.size, lattice.particles.size)]
+    doOrientationSweep(lattice.particles, indexes, state.temperature, state.lam, state.tau, state.wiggleRate)
+    state.iterations += 1
+
     # compute stats
-    latticeAverages = np.append(latticeAverages, getLatticeAverages(lattice))
+    state.latticeAverages = np.append(state.latticeAverages, getLatticeAverages(lattice.particles))
     if it > 100:
-        energyVariance = np.append(energyVariance,lattice.size*fluctuation(latticeAverages['energy'][-100:]))
-    wiglleRateValues = np.append(wiglleRateValues, wiggleRate)
+        energyVariance = np.append(energyVariance,lattice.particles.size*fluctuation(state.latticeAverages['energy'][-100:]))
+    state.wiggleRateValues = np.append(state.wiggleRateValues, state.wiggleRate)
 
     # adjusting of wiggle rate
-    if it % 10 == 0 and latticeAverages.size > 101:
-        mE = np.array([ m.mean() for m in np.split(latticeAverages['energy'][-100:], 4)])
-        mR = np.array([ m.mean() for m in np.split(wiglleRateValues[-100:], 4)])
+    if it % 10 == 0 and state.latticeAverages.size > 101:
+        mE = np.array([ m.mean() for m in np.split(state.latticeAverages['energy'][-100:], 4)])
+        mR = np.array([ m.mean() for m in np.split(state.wiggleRateValues[-100:], 4)])
         
         de = np.diff(mE, 1)
         dr = np.diff(mR, 1)
         efirst = de/dr
         etrend = (efirst[-1]-efirst[-2])
         if etrend < 0:
-            wiggleRate *= 1.1
+            state.wiggleRate *= 1.1
         else:
-            wiggleRate *= 0.9
-    wiggleRate *= 1 + np.random.normal(scale=0.001)
+            state.wiggleRate *= 0.9
+    state.wiggleRate *= 1 + np.random.normal(scale=0.001)
     
     # randomly adjust wiggle rate
     if it % 1000 == 0 and it > 0:
-        wiggleRate = np.random.normal(wiggleRate, scale=1.0)
+        state.wiggleRate = np.random.normal(state.wiggleRate, scale=1.0)
 
     # print stats
     if it % 50 == 0:
-        mQ = latticeAverages['t20'][-1] + lam*np.sqrt(2)*latticeAverages['t22'][-1]
+        mQ = state.latticeAverages['t20'][-1] + state.lam*np.sqrt(2)*state.latticeAverages['t22'][-1]
         mQ = ten6toMat(mQ)
         qw,qv = np.linalg.eig(mQ)
 
-        q0 = np.sum(np.power(latticeAverages['t20'][-1],2))
-        q2 = np.sum(np.power(latticeAverages['t22'][-1],2))
-        p = latticeAverages['p'][-1]
+        q0 = np.sum(np.power(state.latticeAverages['t20'][-1],2))
+        q2 = np.sum(np.power(state.latticeAverages['t22'][-1],2))
+        p = state.latticeAverages['p'][-1]
 
-        print(f'r={wiggleRate:.3f}, <E>={latticeAverages["energy"][-1]:.2f}, var(E)={energyVariance[-1]:.4f}, q0={q0:.6f}, q2={q2:.6f}, p={p:.4f}, qev={qw}')
+        print(f'r={state.wiggleRate:.3f}, <E>={state.latticeAverages["energy"][-1]:.2f}, var(E)={energyVariance[-1]:.4f}, q0={q0:.6f}, q2={q2:.6f}, p={p:.4f}, qev={qw}')
