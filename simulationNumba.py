@@ -151,8 +151,7 @@ def _doOrientationSweep(lattice, indexes, temperature, lam, tau, wiggleRate):
                 particle['energy'] = energy2
 
         # instead of using the same t20 and t22 tensors, calculate depending on lambda parameter
-        a, b, c, particle['t32'] = _getPropertiesFromOrientation(particle['x'],
-                                                                 particle['p'])
+        a, b, c, particle['t32'] = _getPropertiesFromOrientation(particle['x'], particle['p'])
         if lam < (np.sqrt(1/6)-1e-3):
             ex, ey, ez = a, b, c
         if lam > (np.sqrt(1/6)+1e-3):
@@ -200,3 +199,4 @@ def doLatticeStateUpdate(state: LatticeState):
     state.iterations += 1
     state.latticeAverages = np.append(state.latticeAverages,
                                       _getLatticeAverages(state.lattice.particles))
+    state.wiggleRateValues = np.append(state.wiggleRateValues, state.wiggleRate)
