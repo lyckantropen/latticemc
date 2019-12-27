@@ -165,7 +165,7 @@ def getPropertiesFromOrientation(x, parity):
 
     t32*=(parity/np.sqrt(6))
 
-    return np.array([ex, ey, ez]), t20, t22, t32
+    return t20, t22, t32
 
 @njit(cache=True)
 def getNeighbors(center, lattice):
@@ -189,11 +189,11 @@ def getNeighbors(center, lattice):
 
 @njit(cache=True)
 def getEnergy(x, p, nx, npi, lam, tau):
-    e, t20, t22, t32 = getPropertiesFromOrientation(x, p)
+    t20, t22, t32 = getPropertiesFromOrientation(x, p)
     Q = t20 + lam*np.sqrt(2)*t22
     energy = 0
     for i in range(nx.shape[0]):
-        ei, t20i, t22i, t32i = getPropertiesFromOrientation(nx[i], npi[i])
+        t20i, t22i, t32i = getPropertiesFromOrientation(nx[i], npi[i])
         Qi = t20i + lam*np.sqrt(2)*t22i
         energy += (-dot6(Q,Qi)-tau*dot10(t32,t32i))/2
     return energy
@@ -228,7 +228,6 @@ def fluctuation(values):
 def doOrientationSweep(lattice, indexes, temperature, lam, tau):
     for _i in indexes:
         particle = lattice[tuple(_i)]
-        #nind = getNeighborsIndices(_i, L)
         nx = getNeighbors(_i, lattice['x'])
         npi = getNeighbors(_i, lattice['p'][...,np.newaxis])
         energy1 = getEnergy(particle['x'], particle['p'], nx, npi, lam=lam, tau=tau)
@@ -247,14 +246,12 @@ def doOrientationSweep(lattice, indexes, temperature, lam, tau):
             particle['p'] = p_
             particle['energy'] = energy2
 
-        particle['basis'], particle['t20'], particle['t22'], particle['t32'] = getPropertiesFromOrientation(particle['x'], particle['p'])
-    
+        particle['t20'], particle['t22'], particle['t32'] = getPropertiesFromOrientation(particle['x'], particle['p'])
 
 
 particle = np.dtype({
     'names':   [ 'index',
                  'x',
-                 'basis',
                  't20',
                  't22',
                  't32',
@@ -262,14 +259,36 @@ particle = np.dtype({
                  'energy',],
     'formats': [ (np.int, (3,)),
                  (np.float32, (4,)),
-                 (np.float32, (3,3)),
                  (np.float32, (6,)),
                  (np.float32, (6,)),
                  (np.float32, (10,)),
-                 np.int32,
+                 np.float32,
                  np.float32
                ]
-})
+}, align=True)
+particle_cdecl = """
+typedef struct __attribute__ ((packed)) {
+    ushort3 index;
+    float4  x;
+    float  t20[6];
+    float  t22[6];
+    float  t32[10];
+    float p;
+    float energy;
+} particle;
+"""
+
+
+def getLatticeAverages(lattice):
+    avg = np.zeros(1, dtype=particle)
+    avg['x'] = lattice['x'].mean(axis=(0,1,2))
+    avg['t20'] = lattice['t20'].mean(axis=(0,1,2))
+    avg['t22'] = lattice['t22'].mean(axis=(0,1,2))
+    avg['t32'] = lattice['t32'].mean(axis=(0,1,2))
+    avg['p'] = lattice['p'].mean()
+    avg['energy'] = lattice['energy'].mean()
+    return avg[0]
+
 
 np.random.seed(42)
 L = 9
@@ -298,23 +317,23 @@ lam=0.3
 tau=1
 wiggleRate = 1.1
 
-meanEnergy = np.array([0], np.float32)
-energyVariance = np.array([0], np.float32)
-wiglleRateValues = np.array([wiggleRate], np.float32)
+latticeAverages = np.empty(1, dtype=particle)
+energyVariance = np.empty(1, np.float32)
+wiglleRateValues = np.empty(1, np.float32)
 
 for it in range(10000):
     indexes = lattice['index'].reshape(-1,3)[np.random.randint(0, lattice.size, lattice.size)]
     doOrientationSweep(lattice, indexes, temperature, lam, tau)
-
+    
     # compute stats
-    meanEnergy = np.append(meanEnergy,lattice['energy'].mean())
+    latticeAverages = np.append(latticeAverages, getLatticeAverages(lattice))
     if it > 100:
-        energyVariance = np.append(energyVariance,lattice.size*fluctuation(meanEnergy[-100:]))
+        energyVariance = np.append(energyVariance,lattice.size*fluctuation(latticeAverages['energy'][-100:]))
     wiglleRateValues = np.append(wiglleRateValues, wiggleRate)
 
     # adjusting of wiggle rate
-    if it % 10 == 0 and meanEnergy.size > 101:
-        mE = np.array([ m.mean() for m in np.split(meanEnergy[-100:], 4)])
+    if it % 10 == 0 and latticeAverages.size > 101:
+        mE = np.array([ m.mean() for m in np.split(latticeAverages['energy'][-100:], 4)])
         mR = np.array([ m.mean() for m in np.split(wiglleRateValues[-100:], 4)])
         
         de = np.diff(mE, 1)
@@ -333,14 +352,12 @@ for it in range(10000):
 
     # print stats
     if it % 50 == 0:
-        w,v = np.linalg.eig(lattice['basis'].mean(axis=(0,1,2)))
-
-        mQ = lattice['t20'].mean(axis=(0,1,2)) + lam*np.sqrt(2)*lattice['t22'].mean(axis=(0,1,2))
+        mQ = latticeAverages['t20'][-1] + lam*np.sqrt(2)*latticeAverages['t22'][-1]
         mQ = ten6toMat(mQ)
         qw,qv = np.linalg.eig(mQ)
 
-        q0 = np.sum(np.power(lattice['t20'].mean(axis=(0,1,2)),2))
-        q2 = np.sum(np.power(lattice['t22'].mean(axis=(0,1,2)),2))
-        p = lattice['p'].mean()
+        q0 = np.sum(np.power(latticeAverages['t20'][-1],2))
+        q2 = np.sum(np.power(latticeAverages['t22'][-1],2))
+        p = latticeAverages['p'][-1]
 
-        print(f'r={wiggleRate:.3f}, <E>={meanEnergy[-1]:.2f}, var(E)={energyVariance[-1]:.4f}, q0={q0:.6f}, q2={q2:.6f}, p={p:.4f}, qev={qw}')
+        print(f'r={wiggleRate:.3f}, <E>={latticeAverages["energy"][-1]:.2f}, var(E)={energyVariance[-1]:.4f}, q0={q0:.6f}, q2={q2:.6f}, p={p:.4f}, qev={qw}')
