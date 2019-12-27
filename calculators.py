@@ -4,7 +4,13 @@ from statistical import fluctuation
 from orderParameters import calculateOrderParameters
 from definitions import gatheredOrderParameters, LatticeState, OrderParametersHistory
 
+
 class Calculator:
+    """
+    A base class for executing code during the execution
+    of the simulation. The user can schedule this to be
+    run every said number of iterations.
+    """
     def __init__(self, howOften, sinceWhen, printEvery=None):
         self.howOften = howOften
         self.sinceWhen = sinceWhen
@@ -39,6 +45,7 @@ class OrderParametersCalculator(Calculator):
         s = ','.join([f'{name}={value[name][0]:.5f}' for name in gatheredOrderParameters.fields.keys()])
         return 'averg: '+s
 
+
 class FluctuationsCalculator(Calculator):
     def __init__(self, orderParametersHistory: OrderParametersHistory, *args, window=100, **kwargs):
         super().__init__(*args, **kwargs)
@@ -49,14 +56,14 @@ class FluctuationsCalculator(Calculator):
         for name in gatheredOrderParameters.fields.keys():
             fluct = state.lattice.particles.size * fluctuation(self.orderParametersHistory.orderParameters[name][-100:])
             fluctuations[name] = fluct
-        
+
         self.orderParametersHistory.fluctuations = np.append(self.orderParametersHistory.fluctuations, fluctuations)
         return fluctuations
-    
+
     def formatValue(self, value):
         s = ','.join([f'{name}={value[name][0]:.5f}' for name in gatheredOrderParameters.fields.keys()])
         return 'fluct: '+s
-            
+
 
 class RandomWiggleRateAdjustor(Calculator):
     def __init__(self, scale, *args, resetValue=None, **kwargs):
@@ -71,6 +78,7 @@ class RandomWiggleRateAdjustor(Calculator):
             state.wiggleRate = np.random.normal(state.wiggleRate, scale=self.scale)
         return state.wiggleRate
 
+
 class DerivativeWiggleRateAdjustor(Calculator):
     def __init__(self, howMany, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -79,7 +87,7 @@ class DerivativeWiggleRateAdjustor(Calculator):
     def calculate(self, state):
         mE = np.array([m.mean() for m in np.split(state.latticeAverages['energy'][-self.howMany:], 4)])
         mR = np.array([m.mean() for m in np.split(state.wiggleRateValues[-self.howMany:], 4)])
-        mR[np.where(mR==0)] = np.random.normal(scale=0.001)
+        mR[np.where(mR == 0)] = np.random.normal(scale=0.001)
 
         de = np.diff(mE, 1)
         dr = np.diff(mR, 1)
