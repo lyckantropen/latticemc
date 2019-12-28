@@ -1,10 +1,10 @@
 import numpy as np
-from numba import njit
+from numba import jit
 from statistical import fluctuation
 from tensorTools import ten6toMat, dot10
 from definitions import gatheredOrderParameters, LatticeState
 
-
+@jit(nopython=False,forceobj=True,parallel=True)
 def calculateOrderParameters(state: LatticeState):
     """
     Calculate instantaneous order parameters after
@@ -15,7 +15,7 @@ def calculateOrderParameters(state: LatticeState):
     mQ = ten6toMat(mQ)
     w = np.linalg.eigvalsh(mQ)
     # TODO: WHY THE MINUS???? Shouldn't be needed. Does LAPACK do something weird?
-    wn, wm, wl = sorted(-w, key=lambda x: x**2, reverse=True)
+    wn, wm, wl = sorted(-w, key=np.square, reverse=True)
 
     q0 = wn/(np.sqrt(2/3))
     q2 = (wl-wm)/(2/np.sqrt(2))
