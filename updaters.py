@@ -5,7 +5,7 @@ from orderParameters import calculateOrderParameters
 from definitions import gatheredOrderParameters, LatticeState, OrderParametersHistory
 
 
-class Calculator:
+class Updater:
     """
     A base class for executing code during the execution
     of the simulation. The user can schedule this to be
@@ -31,7 +31,7 @@ class Calculator:
         pass
 
 
-class OrderParametersCalculator(Calculator):
+class OrderParametersCalculator(Updater):
     def __init__(self, orderParametersHistory: OrderParametersHistory, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.orderParametersHistory = orderParametersHistory
@@ -46,7 +46,7 @@ class OrderParametersCalculator(Calculator):
         return 'averg: '+s
 
 
-class FluctuationsCalculator(Calculator):
+class FluctuationsCalculator(Updater):
     def __init__(self, orderParametersHistory: OrderParametersHistory, *args, window=100, **kwargs):
         super().__init__(*args, **kwargs)
         self.orderParametersHistory = orderParametersHistory
@@ -65,7 +65,7 @@ class FluctuationsCalculator(Calculator):
         return 'fluct: '+s
 
 
-class RandomWiggleRateAdjustor(Calculator):
+class RandomWiggleRateAdjustor(Updater):
     def __init__(self, scale, *args, resetValue=None, **kwargs):
         super().__init__(*args, **kwargs)
         self.scale = scale
@@ -79,7 +79,7 @@ class RandomWiggleRateAdjustor(Calculator):
         return state.wiggleRate
 
 
-class DerivativeWiggleRateAdjustor(Calculator):
+class DerivativeWiggleRateAdjustor(Updater):
     def __init__(self, howMany, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.howMany = howMany

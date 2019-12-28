@@ -1,7 +1,7 @@
 from definitions import Lattice, LatticeState, OrderParametersHistory
 from latticeTools import initializePartiallyOrdered, initializeRandom
 from randomQuaternion import randomQuaternion
-from calculators import OrderParametersCalculator, FluctuationsCalculator, DerivativeWiggleRateAdjustor, RandomWiggleRateAdjustor
+from updaters import OrderParametersCalculator, FluctuationsCalculator, DerivativeWiggleRateAdjustor, RandomWiggleRateAdjustor
 from failsafe import failsafeSaveSimulation
 import simulationNumba
 
@@ -15,7 +15,7 @@ orderParametersHistory = OrderParametersHistory()
 
 orderParametersCalculator = OrderParametersCalculator(orderParametersHistory, howOften=1, sinceWhen=1, printEvery=50)
 fluctuationsCalculator = FluctuationsCalculator(orderParametersHistory, window=100, howOften=50, sinceWhen=100, printEvery=50)
-calculators = [
+updaters = [
     orderParametersCalculator,
     fluctuationsCalculator,
     DerivativeWiggleRateAdjustor(howMany=100, howOften=10, sinceWhen=101),
@@ -27,8 +27,8 @@ try:
     for it in range(10000):
         simulationNumba.doLatticeStateUpdate(state)
 
-        for calc in calculators:
-            calc.perform(state)
+        for u in updaters:
+            u.perform(state)
 
 except Exception as e:
     failsafeSaveSimulation(e, state, orderParametersHistory)
