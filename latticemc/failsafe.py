@@ -1,5 +1,6 @@
 from .definitions import LatticeState, OrderParametersHistory
 
+
 def failsafeSaveSimulation(e: Exception, state: LatticeState, orderParametersHistory: OrderParametersHistory):
     try:
         print(f'Exception: {e}')
@@ -11,7 +12,7 @@ def failsafeSaveSimulation(e: Exception, state: LatticeState, orderParametersHis
         from uuid import uuid1
         from pathlib import Path
 
-        destPath = Path(getcwd())/Path(str(uuid1()))
+        destPath = Path(getcwd()) / Path(str(uuid1()))
 
         print(f'Will attempt to save simulation state to {destPath}')
         destPath.mkdir()
@@ -24,13 +25,13 @@ def failsafeSaveSimulation(e: Exception, state: LatticeState, orderParametersHis
             f'lambda={state.lam}\nlatticeSize={state.lattice.particles.shape}\n'
             f'wiggleRate={state.wiggleRate}\n'
         )
-        descFile = destPath/'desc.txt'
+        descFile = destPath / 'desc.txt'
         descFile.write_text(descStr)
-        
-        stateFile = destPath/f'latticeState.dump'
-        orderParametersHistoryFile = destPath/f'orderParametersHistory.dump'
-        dump(state, stateFile.as_posix(), compress=('xz',9))
-        dump(orderParametersHistory, orderParametersHistoryFile.as_posix(), compress=('xz',9))
+
+        stateFile = destPath / f'latticeState.dump'
+        orderParametersHistoryFile = destPath / f'orderParametersHistory.dump'
+        dump(state, stateFile.as_posix(), compress=('xz', 9))
+        dump(orderParametersHistory, orderParametersHistoryFile.as_posix(), compress=('xz', 9))
 
         print(f'Saved lattice and parameters to {destPath}. Use joblib.load to restore them.')
     except Exception as e2:

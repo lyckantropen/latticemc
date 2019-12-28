@@ -2,7 +2,7 @@ import numpy as np
 from numba import njit
 from typing import Optional
 from .randomQuaternion import randomQuaternion, wiggleQuaternion
-from .definitions import particle, Lattice, LatticeState
+from .definitions import Lattice
 
 
 @njit(cache=True)

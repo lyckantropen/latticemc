@@ -10,6 +10,6 @@ def fluctuation(values):
     fluct = np.zeros_like(values)
     for i in range(fluct.size):
         e = np.random.choice(values, values.size)
-        e2 = e*e
-        fluct[i] = (e2.mean()-e.mean()**2)
+        e2 = e * e
+        fluct[i] = (e2.mean() - e.mean()**2)
     return fluct.mean()
