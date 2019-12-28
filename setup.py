@@ -12,5 +12,5 @@ setup (
     license = 'MIT',
     keywords = 'lattice monte carlo biaxial nematic chirality',
     packages = ['latticemc'],
-    install_requires = readlines('req.txt')
+    install_requires = readlines('requirements.txt')
 )
