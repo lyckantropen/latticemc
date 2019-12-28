@@ -1,9 +1,9 @@
-from definitions import Lattice, LatticeState, OrderParametersHistory
-from latticeTools import initializePartiallyOrdered, initializeRandom
-from randomQuaternion import randomQuaternion
-from updaters import OrderParametersCalculator, FluctuationsCalculator, DerivativeWiggleRateAdjustor, RandomWiggleRateAdjustor
-from failsafe import failsafeSaveSimulation
-import simulationNumba
+from latticemc.definitions import Lattice, LatticeState, OrderParametersHistory
+from latticemc.latticeTools import initializePartiallyOrdered, initializeRandom
+from latticemc.randomQuaternion import randomQuaternion
+from latticemc.updaters import OrderParametersCalculator, FluctuationsCalculator, DerivativeWiggleRateAdjustor, RandomWiggleRateAdjustor
+from latticemc.failsafe import failsafeSaveSimulation
+from latticemc import simulationNumba
 
 
 lattice = Lattice(9, 9, 9)

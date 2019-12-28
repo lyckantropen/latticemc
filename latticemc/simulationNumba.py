@@ -4,9 +4,9 @@ Monte Carlo lattice simulation accelerated using Numba
 """
 import numpy as np
 from numba import jit, njit
-from randomQuaternion import randomQuaternion, wiggleQuaternion
-from definitions import particle, Lattice, LatticeState
-from tensorTools import dot6, dot10, T20AndT22In6Coordinates, quaternionToOrientation, SQRT16, SQRT2
+from .randomQuaternion import randomQuaternion, wiggleQuaternion
+from .definitions import particle, Lattice, LatticeState
+from .tensorTools import dot6, dot10, T20AndT22In6Coordinates, quaternionToOrientation, SQRT16, SQRT2
 
 @njit(cache=True)
 def _getPropertiesFromOrientation(x, parity):

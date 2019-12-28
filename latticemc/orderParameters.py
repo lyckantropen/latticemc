@@ -1,8 +1,8 @@
 import numpy as np
 from numba import jit
-from statistical import fluctuation
-from tensorTools import ten6toMat, dot10
-from definitions import gatheredOrderParameters, LatticeState
+from .statistical import fluctuation
+from .tensorTools import ten6toMat, dot10
+from .definitions import gatheredOrderParameters, LatticeState
 
 @jit(nopython=False,forceobj=True,parallel=True)
 def calculateOrderParameters(state: LatticeState):
