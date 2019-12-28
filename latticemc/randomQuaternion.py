@@ -3,7 +3,7 @@ from numba import njit
 
 
 @njit(cache=True)
-def randomQuaternion(wiggleRate):
+def randomQuaternion(radius):
     """
     Generate a random point on a 4D-sphere
     of radius equal to 'wiggleRate'
@@ -29,10 +29,10 @@ def randomQuaternion(wiggleRate):
 
     sr = np.sqrt((1 - r1) / r2)
 
-    result[0] = wiggleRate * y1
-    result[1] = wiggleRate * y2
-    result[2] = wiggleRate * y3 * sr
-    result[3] = wiggleRate * y4 * sr
+    result[0] = radius * y1
+    result[1] = radius * y2
+    result[2] = radius * y3 * sr
+    result[3] = radius * y4 * sr
     return result
 
 

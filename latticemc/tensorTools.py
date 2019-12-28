@@ -49,16 +49,64 @@ def T20AndT22In6Coordinates(ex, ey, ez):
     return t20, t22
 
 
+@njit(cache=True)
+def T32In10Coordinates(ex, ey, ez):
+    t32 = np.zeros(10, np.float32)
+
+    # 000
+    t32[0] = 6.0 * (ex[0] * ey[0] * ez[0])  # 1
+    # 100
+    t32[1] = 2.0 * (ex[0] * ey[0] * ez[1] +  # 3
+                    ex[0] * ey[1] * ez[0] +
+                    ex[1] * ey[0] * ez[0])
+    # 110
+    t32[2] = 2.0 * (ex[0] * ey[1] * ez[1] +  # 3
+                    ex[1] * ey[0] * ez[1] +
+                    ex[1] * ey[1] * ez[0])
+    # 111
+    t32[3] = 6.0 * (ex[1] * ey[1] * ez[1])  # 1
+    # 200
+    t32[4] = 2.0 * (ex[0] * ey[0] * ez[2] +  # 3
+                    ex[0] * ey[2] * ez[0] +
+                    ex[2] * ey[0] * ez[0])
+    # 210
+    t32[5] = (ex[0] * ey[1] * ez[2] +     # 6
+              ex[0] * ey[2] * ez[1] +
+              ex[1] * ey[0] * ez[2] +
+              ex[2] * ey[0] * ez[1] +
+              ex[1] * ey[2] * ez[0] +
+              ex[2] * ey[1] * ez[0])
+    # 211
+    t32[6] = 2.0 * (ex[1] * ey[1] * ez[2] +  # 3
+                    ex[1] * ey[2] * ez[1] +
+                    ex[2] * ey[1] * ez[1])
+    # 220
+    t32[7] = 2.0 * (ex[2] * ey[2] * ez[0] +  # 3
+                    ex[0] * ey[2] * ez[2] +
+                    ex[2] * ey[0] * ez[2])
+    # 221
+    t32[8] = 2.0 * (ex[2] * ey[2] * ez[1] +  # 3
+                    ex[1] * ey[2] * ez[2] +
+                    ex[2] * ey[1] * ez[2])
+    # 222
+    t32[9] = 6.0 * (ex[2] * ey[2] * ez[2])  # 1
+
+    return t32 * SQRT16
+
+
+@njit(cache=True)
 def ten6toMat(a):
     """
     Convert a symmetric tensor represented using 6
     independent components to a 3x3 matrix
     """
     ret = np.zeros((3, 3), np.float32)
-    ret[[0, 1, 2], [0, 1, 2]] = a[[0, 3, 5]]
-    ret[[0, 1], [1, 0]] = a[1]
-    ret[[0, 2], [2, 0]] = a[2]
-    ret[[1, 2], [2, 1]] = a[4]
+    ret[0, 0] = a[0]
+    ret[1, 1] = a[3]
+    ret[2, 2] = a[5]
+    ret[0, 1] = ret[1, 0] = a[1]
+    ret[0, 2] = ret[2, 0] = a[2]
+    ret[1, 2] = ret[2, 1] = a[4]
     return ret
 
 

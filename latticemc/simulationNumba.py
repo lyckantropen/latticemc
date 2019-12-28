@@ -6,7 +6,8 @@ import numpy as np
 from numba import jit, njit
 from .randomQuaternion import wiggleQuaternion
 from .definitions import particle, LatticeState
-from .tensorTools import dot6, dot10, T20AndT22In6Coordinates, quaternionToOrientation, SQRT16, SQRT2
+from .tensorTools import dot6, dot10, T20AndT22In6Coordinates, T32In10Coordinates, quaternionToOrientation, SQRT2
+from .orderParameters import biaxialOrdering
 
 
 @njit(cache=True)
@@ -16,49 +17,8 @@ def _getPropertiesFromOrientation(x, parity):
     quaternion 'x' and parity 'p'. Returns ex, ey, ez, t32.
     """
     ex, ey, ez = quaternionToOrientation(x)
-
-    t32 = np.zeros(10, np.float32)
-
-    # 000
-    t32[0] = 6.0 * (ex[0] * ey[0] * ez[0])  # 1
-    # 100
-    t32[1] = 2.0 * (ex[0] * ey[0] * ez[1] +  # 3
-                    ex[0] * ey[1] * ez[0] +
-                    ex[1] * ey[0] * ez[0])
-    # 110
-    t32[2] = 2.0 * (ex[0] * ey[1] * ez[1] +  # 3
-                    ex[1] * ey[0] * ez[1] +
-                    ex[1] * ey[1] * ez[0])
-    # 111
-    t32[3] = 6.0 * (ex[1] * ey[1] * ez[1])  # 1
-    # 200
-    t32[4] = 2.0 * (ex[0] * ey[0] * ez[2] +  # 3
-                    ex[0] * ey[2] * ez[0] +
-                    ex[2] * ey[0] * ez[0])
-    # 210
-    t32[5] = (ex[0] * ey[1] * ez[2] +     # 6
-              ex[0] * ey[2] * ez[1] +
-              ex[1] * ey[0] * ez[2] +
-              ex[2] * ey[0] * ez[1] +
-              ex[1] * ey[2] * ez[0] +
-              ex[2] * ey[1] * ez[0])
-    # 211
-    t32[6] = 2.0 * (ex[1] * ey[1] * ez[2] +  # 3
-                    ex[1] * ey[2] * ez[1] +
-                    ex[2] * ey[1] * ez[1])
-    # 220
-    t32[7] = 2.0 * (ex[2] * ey[2] * ez[0] +  # 3
-                    ex[0] * ey[2] * ez[2] +
-                    ex[2] * ey[0] * ez[2])
-    # 221
-    t32[8] = 2.0 * (ex[2] * ey[2] * ez[1] +  # 3
-                    ex[1] * ey[2] * ez[2] +
-                    ex[2] * ey[1] * ez[2])
-    # 222
-    t32[9] = 6.0 * (ex[2] * ey[2] * ez[2])  # 1
-
-    t32 *= (parity * SQRT16)
-
+    t32 = T32In10Coordinates(ex, ey, ez)
+    t32 *= parity
     return ex, ey, ez, t32
 
 
@@ -69,14 +29,12 @@ def _getNeighbors(center, lattice):
     'lattice', return the values of 'lattice' at the nearest
     neighbor sites, obeying periodic boundary conditions.
     """
-    ind = np.mod(np.array([
-        [1, 0, 0],
-        [-1, 0, 0],
-        [0, 1, 0],
-        [0, -1, 0],
-        [0, 0, 1],
-        [0, 0, -1]
-    ]) + center, lattice.shape[0])
+    neighs = 2 * (lattice.ndim - 1)
+    ind = np.zeros((neighs, lattice.ndim - 1), dtype=np.int64)
+    for d in range(lattice.ndim - 1):
+        ind[d * 2, d] = np.mod(center[d] + 1, lattice.shape[d])
+        ind[d * 2 + 1, d] = np.mod(center[d] - 1, lattice.shape[d])
+
     n = np.zeros((6, lattice.shape[-1]), lattice.dtype)
     n[0] = lattice[ind[0, 0], ind[0, 1], ind[0, 2]]
     n[1] = lattice[ind[1, 0], ind[1, 1], ind[1, 2]]
@@ -151,11 +109,12 @@ def _doOrientationSweep(lattice, indexes, temperature, lam, tau, wiggleRate):
 
         # instead of using the same t20 and t22 tensors, calculate depending on lambda parameter
         a, b, c, particle['t32'] = _getPropertiesFromOrientation(particle['x'], particle['p'])
-        if lam < (SQRT16 - 1e-3):
+        o = biaxialOrdering(lam)
+        if o == 1:
             ex, ey, ez = a, b, c
-        if lam > (SQRT16 + 1e-3):
+        if o == -1:
             ex, ey, ez = c, a, b
-        if (lam - SQRT16) < 1e-3:
+        if o == 0:
             ex, ey, ez = b, c, a
         particle['t20'], particle['t22'] = T20AndT22In6Coordinates(ex, ey, ez)
 
