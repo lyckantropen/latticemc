@@ -1,4 +1,4 @@
-from definitions import LatticeState, OrderParametersHistory
+from .definitions import LatticeState, OrderParametersHistory
 
 def failsafeSaveSimulation(e: Exception, state: LatticeState, orderParametersHistory: OrderParametersHistory):
     try:

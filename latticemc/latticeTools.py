@@ -1,8 +1,8 @@
 import numpy as np
 from numba import njit
-from randomQuaternion import randomQuaternion, wiggleQuaternion
-from definitions import particle, Lattice, LatticeState
 from typing import Optional
+from .randomQuaternion import randomQuaternion, wiggleQuaternion
+from .definitions import particle, Lattice, LatticeState
 
 
 @njit(cache=True)
