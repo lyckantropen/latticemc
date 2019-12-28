@@ -1,5 +1,5 @@
 from latticemc.definitions import Lattice, LatticeState, OrderParametersHistory
-from latticemc.latticeTools import initializePartiallyOrdered, initializeRandom
+from latticemc.latticeTools import initializePartiallyOrdered
 from latticemc.randomQuaternion import randomQuaternion
 from latticemc.updaters import OrderParametersCalculator, FluctuationsCalculator, DerivativeWiggleRateAdjustor, RandomWiggleRateAdjustor
 from latticemc.failsafe import failsafeSaveSimulation

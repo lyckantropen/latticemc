@@ -11,6 +11,7 @@ class Updater:
     of the simulation. The user can schedule this to be
     run every said number of iterations.
     """
+
     def __init__(self, howOften, sinceWhen, printEvery=None):
         self.howOften = howOften
         self.sinceWhen = sinceWhen
@@ -43,7 +44,7 @@ class OrderParametersCalculator(Updater):
 
     def formatValue(self, value):
         s = ','.join([f'{name}={value[name][0]:.5f}' for name in gatheredOrderParameters.fields.keys()])
-        return 'averg: '+s
+        return 'averg: ' + s
 
 
 class FluctuationsCalculator(Updater):
@@ -62,7 +63,7 @@ class FluctuationsCalculator(Updater):
 
     def formatValue(self, value):
         s = ','.join([f'{name}={value[name][0]:.5f}' for name in gatheredOrderParameters.fields.keys()])
-        return 'fluct: '+s
+        return 'fluct: ' + s
 
 
 class RandomWiggleRateAdjustor(Updater):
@@ -91,8 +92,8 @@ class DerivativeWiggleRateAdjustor(Updater):
 
         de = np.diff(mE, 1)
         dr = np.diff(mR, 1)
-        efirst = de/dr
-        etrend = (efirst[-1]-efirst[-2])
+        efirst = de / dr
+        etrend = (efirst[-1] - efirst[-2])
         if etrend < 0:
             state.wiggleRate *= 1.1
         else:

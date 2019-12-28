@@ -1,11 +1,12 @@
 import numpy as np
 from numba import njit
 
-SQRT2=np.sqrt(2)
-SQRT6=np.sqrt(6)
-SQRT32=np.sqrt(3/2)
-SQRT12=np.sqrt(1/2)
-SQRT16=np.sqrt(1/6)
+SQRT2 = np.sqrt(2)
+SQRT6 = np.sqrt(6)
+SQRT32 = np.sqrt(3 / 2)
+SQRT12 = np.sqrt(1 / 2)
+SQRT16 = np.sqrt(1 / 6)
+
 
 @njit(cache=True)
 def T20AndT22In6Coordinates(ex, ey, ez):
@@ -38,12 +39,12 @@ def T20AndT22In6Coordinates(ex, ey, ez):
     zz[4] = ez[1] * ez[2]
     zz[5] = ez[2] * ez[2]
 
-    I = np.zeros(6, np.float32)
-    I[0] = 1
-    I[3] = 1
-    I[5] = 1
-    t20 = SQRT32*(zz - 1/3*I)
-    t22 = SQRT12*(xx - yy)
+    ident = np.zeros(6, np.float32)
+    ident[0] = 1
+    ident[3] = 1
+    ident[5] = 1
+    t20 = SQRT32 * (zz - 1 / 3 * ident)
+    t22 = SQRT12 * (xx - yy)
 
     return t20, t22
 
@@ -68,12 +69,12 @@ def dot6(a, b):
     6 non-zero coefficients of a symmetric
     tensor.
     """
-    return (a[0]*b[0] +
-            a[3]*b[3] +
-            a[5]*b[5] +
-            2.0*a[1]*b[1] +
-            2.0*a[2]*b[2] +
-            2.0*a[4]*b[4])
+    return (a[0] * b[0] +
+            a[3] * b[3] +
+            a[5] * b[5] +
+            2.0 * a[1] * b[1] +
+            2.0 * a[2] * b[2] +
+            2.0 * a[4] * b[4])
 
 
 @njit(cache=True)
@@ -94,7 +95,7 @@ def dot10(a, b):
     coeff[7] = 3
     coeff[8] = 3
     coeff[9] = 1
-    coeff *= a*b
+    coeff *= a * b
     return coeff.sum()
 
 

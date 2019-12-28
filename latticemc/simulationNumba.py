@@ -4,9 +4,10 @@ Monte Carlo lattice simulation accelerated using Numba
 """
 import numpy as np
 from numba import jit, njit
-from .randomQuaternion import randomQuaternion, wiggleQuaternion
-from .definitions import particle, Lattice, LatticeState
+from .randomQuaternion import wiggleQuaternion
+from .definitions import particle, LatticeState
 from .tensorTools import dot6, dot10, T20AndT22In6Coordinates, quaternionToOrientation, SQRT16, SQRT2
+
 
 @njit(cache=True)
 def _getPropertiesFromOrientation(x, parity):
@@ -56,7 +57,7 @@ def _getPropertiesFromOrientation(x, parity):
     # 222
     t32[9] = 6.0 * (ex[2] * ey[2] * ez[2])  # 1
 
-    t32 *= (parity*SQRT16)
+    t32 *= (parity * SQRT16)
 
     return ex, ey, ez, t32
 
@@ -94,13 +95,13 @@ def _getEnergy(x, p, nx, npi, lam, tau):
     """
     ex, ey, ez, t32 = _getPropertiesFromOrientation(x, p)
     t20, t22 = T20AndT22In6Coordinates(ex, ey, ez)
-    Q = t20 + lam*SQRT2*t22
+    Q = t20 + lam * SQRT2 * t22
     energy = 0
     for i in range(nx.shape[0]):
         exi, eyi, ezi, t32i = _getPropertiesFromOrientation(nx[i], npi[i])
         t20i, t22i = T20AndT22In6Coordinates(exi, eyi, ezi)
-        Qi = t20i + lam*SQRT2*t22i
-        energy += (-dot6(Q, Qi)-tau*dot10(t32, t32i))/2
+        Qi = t20i + lam * SQRT2 * t22i
+        energy += (-dot6(Q, Qi) - tau * dot10(t32, t32i)) / 2
 
     return energy
 
@@ -114,7 +115,7 @@ def _metropolis(dE, temperature):
     if dE < 0:
         return True
     else:
-        if np.random.random() < np.exp(-dE/temperature):
+        if np.random.random() < np.exp(-dE / temperature):
             return True
     return False
 
@@ -136,7 +137,7 @@ def _doOrientationSweep(lattice, indexes, temperature, lam, tau, wiggleRate):
         # adjust x
         x_ = wiggleQuaternion(particle['x'], wiggleRate)
         energy2 = _getEnergy(x_, particle['p'], nx, npi, lam=lam, tau=tau)
-        if _metropolis(2*(energy2-energy1), temperature):
+        if _metropolis(2 * (energy2 - energy1), temperature):
             particle['x'] = x_
             particle['energy'] = energy2
 
@@ -144,15 +145,15 @@ def _doOrientationSweep(lattice, indexes, temperature, lam, tau, wiggleRate):
         if tau != 0:
             p_ = -particle['p']
             energy2 = _getEnergy(particle['x'], p_, nx, npi, lam=lam, tau=tau)
-            if _metropolis(2*(energy2-energy1), temperature):
+            if _metropolis(2 * (energy2 - energy1), temperature):
                 particle['p'] = p_
                 particle['energy'] = energy2
 
         # instead of using the same t20 and t22 tensors, calculate depending on lambda parameter
         a, b, c, particle['t32'] = _getPropertiesFromOrientation(particle['x'], particle['p'])
-        if lam < (SQRT16-1e-3):
+        if lam < (SQRT16 - 1e-3):
             ex, ey, ez = a, b, c
-        if lam > (SQRT16+1e-3):
+        if lam > (SQRT16 + 1e-3):
             ex, ey, ez = c, a, b
         if (lam - SQRT16) < 1e-3:
             ex, ey, ez = b, c, a
@@ -180,7 +181,7 @@ def doLatticeStateUpdate(state: LatticeState):
     """
     Perform one update of the lattice state, updating
     particles at random (some particles can be updated
-    many times, others ommited). Then, update the 
+    many times, others ommited). Then, update the
     state averages of per-particle properties.
     """
     # update particles at random

@@ -3,14 +3,14 @@ from dataclasses import dataclass, field
 
 # per-particle properties data type
 particle = np.dtype({
-    'names':   ['index',
-                'x',
-                't20',
-                't22',
-                't32',
-                'p',
-                'energy'
-                ],
+    'names': ['index',
+              'x',
+              't20',
+              't22',
+              't32',
+              'p',
+              'energy'
+              ],
     'formats': [(np.int, (3,)),
                 (np.float32, (4,)),
                 (np.float32, (6,)),
@@ -75,6 +75,7 @@ class LatticeState:
     wiggleRate: float = 1
     latticeAverages: np.ndarray = field(default_factory=lambda: np.empty(1, dtype=particle))
     wiggleRateValues: np.ndarray = field(default_factory=lambda: np.empty(1, dtype=np.float32))
+
 
 @dataclass
 class OrderParametersHistory:
