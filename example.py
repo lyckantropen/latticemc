@@ -10,8 +10,9 @@ lattice = Lattice(9, 9, 9)
 initializePartiallyOrdered(lattice, x=randomQuaternion(1))
 # initializeRandom(lattice)
 
-state = LatticeState(parameters=DefiningParameters(temperature=0.9, lam=0.3, tau=1), lattice=lattice)
-orderParametersHistory = OrderParametersHistory()
+modelParams = DefiningParameters(temperature=0.9, lam=0.3, tau=1)
+state = LatticeState(parameters=modelParams, lattice=lattice)
+orderParametersHistory = {modelParams: OrderParametersHistory()}
 
 orderParametersCalculator = OrderParametersCalculator(orderParametersHistory, howOften=1, sinceWhen=1, printEvery=50)
 fluctuationsCalculator = FluctuationsCalculator(orderParametersHistory, window=100, howOften=50, sinceWhen=100, printEvery=50)
