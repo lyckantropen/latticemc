@@ -4,7 +4,7 @@ from .definitions import LatticeState, OrderParametersHistory
 def failsafeSaveSimulation(e: Exception, state: LatticeState, orderParametersHistory: OrderParametersHistory):
     try:
         print(f'Exception: {e}')
-        print(f'Attempting to save the state of the simulation')
+        print(f'Attempting to save the state of the simulation: {state.parameters}')
 
         from datetime import datetime
         from joblib import dump
