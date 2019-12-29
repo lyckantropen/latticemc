@@ -23,7 +23,7 @@ class Updater:
         if state.iterations >= self.sinceWhen and state.iterations % self.howOften == 0:
             self.lastValue = self.update(state)
             if self.printEvery is not None and state.iterations % self.printEvery == 0:
-                print(f'[{state.iterations}]:\t {self.formatValue(self.lastValue)}')
+                print(f'[{state.iterations},{state.parameters}]:\t {self.formatValue(self.lastValue)}')
 
     def formatValue(self, value):
         return str(value)
