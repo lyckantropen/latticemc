@@ -20,7 +20,7 @@ class Updater:
 
     def perform(self, state: LatticeState):
         if state.iterations >= self.sinceWhen and state.iterations % self.howOften == 0:
-            self.lastValue = self.calculate(state)
+            self.lastValue = self.update(state)
             if self.printEvery is not None and state.iterations % self.printEvery == 0:
                 print(f'[{state.iterations}]:\t {self.formatValue(self.lastValue)}')
 
@@ -28,7 +28,7 @@ class Updater:
         return str(value)
 
     @abstractmethod
-    def calculate(self, state: LatticeState):
+    def update(self, state: LatticeState):
         pass
 
 
@@ -37,7 +37,7 @@ class OrderParametersCalculator(Updater):
         super().__init__(*args, **kwargs)
         self.orderParametersHistory = orderParametersHistory
 
-    def calculate(self, state: LatticeState):
+    def update(self, state: LatticeState):
         op = calculateOrderParameters(state)
         self.orderParametersHistory.orderParameters = np.append(self.orderParametersHistory.orderParameters, op)
         return op
@@ -52,7 +52,7 @@ class FluctuationsCalculator(Updater):
         super().__init__(*args, **kwargs)
         self.orderParametersHistory = orderParametersHistory
 
-    def calculate(self, state):
+    def update(self, state):
         fluctuations = np.zeros(1, dtype=gatheredOrderParameters)
         for name in gatheredOrderParameters.fields.keys():
             fluct = state.lattice.particles.size * fluctuation(self.orderParametersHistory.orderParameters[name][-100:])
@@ -72,7 +72,7 @@ class RandomWiggleRateAdjustor(Updater):
         self.scale = scale
         self.resetValue = resetValue
 
-    def calculate(self, state):
+    def update(self, state):
         if self.resetValue is not None:
             state.wiggleRate = np.random.normal(self.resetValue, scale=self.scale)
         else:
@@ -85,7 +85,7 @@ class DerivativeWiggleRateAdjustor(Updater):
         super().__init__(*args, **kwargs)
         self.howMany = howMany
 
-    def calculate(self, state):
+    def update(self, state):
         mE = np.array([m.mean() for m in np.split(state.latticeAverages['energy'][-self.howMany:], 4)])
         mR = np.array([m.mean() for m in np.split(state.wiggleRateValues[-self.howMany:], 4)])
         mR[np.where(mR == 0)] = np.random.normal(scale=0.001)
@@ -99,3 +99,12 @@ class DerivativeWiggleRateAdjustor(Updater):
         else:
             state.wiggleRate *= 0.9
         return state.wiggleRate
+
+
+class CallbackUpdater(Updater):
+    def __init__(self, callback, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.callback = callback
+
+    def update(self, state):
+        return self.callback(state)
