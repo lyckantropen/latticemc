@@ -1,8 +1,9 @@
 from abc import abstractmethod
 import numpy as np
+from typing import Dict
 from .statistical import fluctuation
 from .orderParameters import calculateOrderParameters
-from .definitions import gatheredOrderParameters, LatticeState, OrderParametersHistory
+from .definitions import gatheredOrderParameters, LatticeState, OrderParametersHistory, DefiningParameters
 
 
 class Updater:
@@ -33,13 +34,13 @@ class Updater:
 
 
 class OrderParametersCalculator(Updater):
-    def __init__(self, orderParametersHistory: OrderParametersHistory, *args, **kwargs):
+    def __init__(self, orderParametersHistory: Dict[DefiningParameters, OrderParametersHistory], *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.orderParametersHistory = orderParametersHistory
 
     def update(self, state: LatticeState):
         op = calculateOrderParameters(state)
-        self.orderParametersHistory.orderParameters = np.append(self.orderParametersHistory.orderParameters, op)
+        self.orderParametersHistory[state.parameters].orderParameters = np.append(self.orderParametersHistory[state.parameters].orderParameters, op)
         return op
 
     def formatValue(self, value):
@@ -48,17 +49,17 @@ class OrderParametersCalculator(Updater):
 
 
 class FluctuationsCalculator(Updater):
-    def __init__(self, orderParametersHistory: OrderParametersHistory, *args, window=100, **kwargs):
+    def __init__(self, orderParametersHistory: Dict[DefiningParameters, OrderParametersHistory], *args, window=100, **kwargs):
         super().__init__(*args, **kwargs)
         self.orderParametersHistory = orderParametersHistory
 
     def update(self, state):
         fluctuations = np.zeros(1, dtype=gatheredOrderParameters)
         for name in gatheredOrderParameters.fields.keys():
-            fluct = state.lattice.particles.size * fluctuation(self.orderParametersHistory.orderParameters[name][-100:])
+            fluct = state.lattice.particles.size * fluctuation(self.orderParametersHistory[state.parameters].orderParameters[name][-100:])
             fluctuations[name] = fluct
 
-        self.orderParametersHistory.fluctuations = np.append(self.orderParametersHistory.fluctuations, fluctuations)
+        self.orderParametersHistory[state.parameters].fluctuations = np.append(self.orderParametersHistory[state.parameters].fluctuations, fluctuations)
         return fluctuations
 
     def formatValue(self, value):
