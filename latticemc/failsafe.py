@@ -21,8 +21,8 @@ def failsafeSaveSimulation(e: Exception, state: LatticeState, orderParametersHis
 
         descStr = (
             f'time={ts}\niterations={state.iterations}\n'
-            f'temperature={state.temperature}\ntau={state.tau}\n'
-            f'lambda={state.lam}\nlatticeSize={state.lattice.particles.shape}\n'
+            f'parameters={state.parameters}\n'
+            f'latticeSize={state.lattice.particles.shape}\n'
             f'wiggleRate={state.wiggleRate}\n'
         )
         descFile = destPath / 'desc.txt'

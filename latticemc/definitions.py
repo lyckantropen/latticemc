@@ -1,5 +1,6 @@
 import numpy as np
 from dataclasses import dataclass, field
+from collections import namedtuple
 
 # per-particle properties data type
 particle = np.dtype({
@@ -61,14 +62,15 @@ class Lattice:
             list(np.ndindex((self.X, self.Y, self.Z)))).reshape(self.X, self.Y, self.Z, 3)
 
 
+DefiningParameters = namedtuple('DefiningParameters', ['temperature', 'tau', 'lam'])
+
+
 @dataclass
 class LatticeState:
     """
     Represents a given state of a molecular lattice at a given point in the simulation
     """
-    temperature: float
-    tau: float
-    lam: float
+    parameters: DefiningParameters
     lattice: Lattice
 
     iterations: int = 0

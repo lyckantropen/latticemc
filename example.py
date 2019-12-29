@@ -1,4 +1,4 @@
-from latticemc.definitions import Lattice, LatticeState, OrderParametersHistory
+from latticemc.definitions import Lattice, LatticeState, OrderParametersHistory, DefiningParameters
 from latticemc.latticeTools import initializePartiallyOrdered
 from latticemc.randomQuaternion import randomQuaternion
 from latticemc.updaters import OrderParametersCalculator, FluctuationsCalculator, DerivativeWiggleRateAdjustor, RandomWiggleRateAdjustor
@@ -10,7 +10,7 @@ lattice = Lattice(9, 9, 9)
 initializePartiallyOrdered(lattice, x=randomQuaternion(1))
 # initializeRandom(lattice)
 
-state = LatticeState(temperature=0.9, lam=0.3, tau=1, lattice=lattice)
+state = LatticeState(parameters=DefiningParameters(temperature=0.9, lam=0.3, tau=1), lattice=lattice)
 orderParametersHistory = OrderParametersHistory()
 
 orderParametersCalculator = OrderParametersCalculator(orderParametersHistory, howOften=1, sinceWhen=1, printEvery=50)
