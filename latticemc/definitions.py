@@ -75,11 +75,11 @@ class LatticeState:
 
     iterations: int = 0
     wiggleRate: float = 1
-    latticeAverages: np.ndarray = field(default_factory=lambda: np.empty(1, dtype=particle))
-    wiggleRateValues: np.ndarray = field(default_factory=lambda: np.empty(1, dtype=np.float32))
+    latticeAverages: np.ndarray = field(default_factory=lambda: np.empty(0, dtype=particle))
+    wiggleRateValues: np.ndarray = field(default_factory=lambda: np.empty(0, dtype=np.float32))
 
 
 @dataclass
 class OrderParametersHistory:
-    orderParameters: np.ndarray = field(default_factory=lambda: np.empty(1, dtype=gatheredOrderParameters))
-    fluctuations: np.ndarray = field(default_factory=lambda: np.empty(1, dtype=gatheredOrderParameters))
+    orderParameters: np.ndarray = field(default_factory=lambda: np.empty(0, dtype=gatheredOrderParameters))
+    fluctuations: np.ndarray = field(default_factory=lambda: np.empty(0, dtype=gatheredOrderParameters))
