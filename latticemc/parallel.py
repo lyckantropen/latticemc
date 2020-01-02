@@ -43,27 +43,28 @@ class SimulationProcess(mp.Process):
         self.fluctuationsWindow = fluctuationsWindow
         self.parallelTemperingInterval = parallelTemperingInterval
 
-    def run(self):
-        localHistory = OrderParametersHistory()
+        self._relevantHistoryLength = 0
+        self.localHistory = OrderParametersHistory()
 
+    def run(self):
         orderParametersBroadcaster = CallbackUpdater(
-            callback=lambda _: self.queue.put((MessageType.OrderParameters, (self.state.parameters, localHistory.orderParameters[-self.reportOrderParametersEvery:]))),
+            callback=lambda _: self._broadcastOrderParameters(),
             howOften=self.reportOrderParametersEvery,
             sinceWhen=self.reportOrderParametersEvery
         )
         fluctuationsBroadcaster = CallbackUpdater(
-            callback=lambda _: self.queue.put((MessageType.Fluctuations, (self.state.parameters, localHistory.fluctuations[-self.fluctuationsHowOften:]))),
+            callback=lambda _: self._broadcastFluctuations(),
             howOften=self.fluctuationsHowOften,
             sinceWhen=self.fluctuationsWindow
         )
         stateBroadcaster = CallbackUpdater(
-            callback=lambda _: self.queue.put((MessageType.State, self.state)),
+            callback=lambda _: self._broadcastState(),
             howOften=self.reportStateEvery,
             sinceWhen=self.reportStateEvery
         )
 
-        orderParametersCalculator = OrderParametersCalculator(localHistory, howOften=1, sinceWhen=0)
-        fluctuationsCalculator = FluctuationsCalculator(localHistory, window=self.fluctuationsWindow, howOften=self.fluctuationsHowOften, sinceWhen=self.fluctuationsWindow)
+        orderParametersCalculator = OrderParametersCalculator(self.localHistory, howOften=1, sinceWhen=0)
+        fluctuationsCalculator = FluctuationsCalculator(self.localHistory, window=self.fluctuationsWindow, howOften=self.fluctuationsHowOften, sinceWhen=self.fluctuationsWindow)
         perStateUpdaters = [
             orderParametersCalculator,
             fluctuationsCalculator,
@@ -77,7 +78,7 @@ class SimulationProcess(mp.Process):
 
         if self.parallelTemperingInterval is not None:
             parallelTemperingUpdater = CallbackUpdater(
-                callback=lambda _: self._parallelTempering(localHistory),
+                callback=lambda _: self._parallelTempering(),
                 howOften=self.parallelTemperingInterval,
                 sinceWhen=self.parallelTemperingInterval
             )
@@ -86,21 +87,35 @@ class SimulationProcess(mp.Process):
         try:
             for it in range(self.cycles):
                 simulationNumba.doLatticeStateUpdate(self.state)
+                self._relevantHistoryLength += 1
                 for u in perStateUpdaters:
                     u.perform(self.state)
 
         except Exception as e:
-            failsafeSaveSimulation(e, self.state, localHistory)
+            failsafeSaveSimulation(e, self.state, self.localHistory)
 
         self.queue.put((MessageType.State, self.state))
 
-    def _parallelTempering(self, localHistory: OrderParametersHistory):
+    def _broadcastOrderParameters(self):
+        self.queue.put((MessageType.OrderParameters,
+                        (self.state.parameters,
+                         self.localHistory.orderParameters[-min(self._relevantHistoryLength, self.reportOrderParametersEvery):])))
+
+    def _broadcastFluctuations(self):
+        self.queue.put((MessageType.Fluctuations,
+                        (self.state.parameters,
+                         self.localHistory.fluctuations[-min(self._relevantHistoryLength, self.fluctuationsHowOften):])))
+
+    def _broadcastState(self):
+        self.queue.put((MessageType.State, self.state))
+
+    def _parallelTempering(self):
         """
         Post a message to the queue that this configuration is ready
         for parallel tempering. Open a pipe and wait for a new set
         of parameters, then change them if they are different.
         """
-        energy = localHistory.orderParameters['energy'][-1] * self.state.lattice.particles.size
+        energy = self.localHistory.orderParameters['energy'][-1] * self.state.lattice.particles.size
         our, theirs = mp.Pipe()
         self.queue.put((MessageType.ParallelTemperingSignUp, ParallelTemperingParameters(parameters=self.state.parameters, energy=energy, pipe=theirs)))
 
@@ -110,8 +125,16 @@ class SimulationProcess(mp.Process):
         else:
             parameters = our.recv()
             if parameters != self.state.parameters:
+                # broadcast what we can
+                self._broadcastOrderParameters()
+                self._broadcastFluctuations()
+                self._broadcastState()
+
                 # parameter change
                 self.state.parameters = parameters
+
+                # reset the number of results that can be safely broadcasted as coming from this configuration
+                self._relevantHistoryLength = 0
 
 
 class SimulationRunner(threading.Thread):
