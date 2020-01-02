@@ -105,10 +105,13 @@ class SimulationProcess(mp.Process):
         self.queue.put((MessageType.ParallelTemperingSignUp, ParallelTemperingParameters(parameters=self.state.parameters, energy=energy, pipe=theirs)))
 
         # wait for decision in governing thread
-        parameters = our.recv()
-        if parameters != self.state.parameters:
-            # parameter change
-            self.state.parameters = parameters
+        if not our.poll(30):
+            print(f'{self.state.parameters}: No parallel tempering data to exchange')
+        else:
+            parameters = our.recv()
+            if parameters != self.state.parameters:
+                # parameter change
+                self.state.parameters = parameters
 
 
 class SimulationRunner(threading.Thread):
@@ -127,14 +130,19 @@ class SimulationRunner(threading.Thread):
         self._starting = True
 
         # for parallel tempering
-        self._temperatures = np.array(sorted([float(state.parameters.temperature) for state in self.states]))
+        self._temperatures = [state.parameters.temperature for state in self.states]
 
     def run(self):
         q = mp.Queue()
 
         self.simulations = []
-        for state in self.states:
+        for i, state in enumerate(self.states):
             sim = SimulationProcess(q, state, *self.args, **self.kwargs)
+
+            # ensure the last state is not tempered, because it won't have a pair
+            if len(self.states) % 2 == 1 and i == len(self.states) - 1:
+                sim.parallelTemperingInterval = None
+
             sim.start()
             self.simulations.append(sim)
 
@@ -161,7 +169,7 @@ class SimulationRunner(threading.Thread):
                     state.wiggleRateValues = msg.wiggleRateValues
                 if messageType == MessageType.ParallelTemperingSignUp:
                     # add this state to the waiting list for parallel tempering
-                    temperatureIndex = np.nonzero(np.isclose(self._temperatures, float(msg.parameters.temperature)))[0][0]
+                    temperatureIndex = self._temperatures.index(msg.parameters.temperature)
                     ptReady[temperatureIndex] = msg
 
             # process waiting list for parallel tempering in random order
