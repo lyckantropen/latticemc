@@ -1,12 +1,14 @@
-from latticemc.definitions import OrderParametersHistory, DefiningParameters
+from latticemc.definitions import OrderParametersHistory, DefiningParameters, LatticeState, Lattice
 from latticemc.updaters import DerivativeWiggleRateAdjustor, RandomWiggleRateAdjustor
 from latticemc.parallel import SimulationRunner
 import numpy as np
 import time
 
 temperatures = np.arange(0.2, 1, 0.1)
-parameters = [DefiningParameters(temperature=t, lam=0.3, tau=1) for t in temperatures]
-orderParametersHistory = {p: OrderParametersHistory() for p in parameters}
+states = [LatticeState(parameters=DefiningParameters(temperature=t, lam=0.3, tau=1),
+                       lattice=Lattice(8, 8, 8))
+          for t in temperatures]
+orderParametersHistory = {state.parameters: OrderParametersHistory() for state in states}
 
 perStateUpdaters = [
     DerivativeWiggleRateAdjustor(howMany=100, howOften=10, sinceWhen=101),
@@ -15,18 +17,18 @@ perStateUpdaters = [
 ]
 
 if __name__ == "__main__":
-    runner = SimulationRunner(parameters,
+    runner = SimulationRunner(states,
                               orderParametersHistory,
-                              latticeSize=(8, 8, 8),
-                              cycles=10000,
-                              reportOrderParametersEvery=100,
+                              cycles=100,
+                              reportOrderParametersEvery=10,
+                              reportStateEvery=10,
                               perStateUpdaters=perStateUpdaters,
-                              parallelTemperingInterval=100)
+                              parallelTemperingInterval=10)
     runner.start()
 
     while runner.alive():
         time.sleep(5)
-        for p in parameters:
-            print(f'{p}: energy={orderParametersHistory[p].orderParameters["energy"].mean()}')
+        for state in states:
+            print(f'{state.parameters}: energy={orderParametersHistory[state.parameters].orderParameters["energy"].mean()}')
 
     runner.join()
