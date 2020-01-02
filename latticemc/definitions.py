@@ -1,6 +1,6 @@
 import numpy as np
 from dataclasses import dataclass, field
-from collections import namedtuple
+from decimal import Decimal
 
 # per-particle properties data type
 particle = np.dtype({
@@ -62,7 +62,14 @@ class Lattice:
             list(np.ndindex((self.X, self.Y, self.Z)))).reshape(self.X, self.Y, self.Z, 3)
 
 
-DefiningParameters = namedtuple('DefiningParameters', ['temperature', 'tau', 'lam'])
+@dataclass
+class DefiningParameters:
+    temperature: Decimal
+    tau: Decimal
+    lam: Decimal
+
+    def __hash__(self):
+        return (self.temperature, self.tau, self.lam).__hash__()
 
 
 @dataclass
