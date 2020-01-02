@@ -150,9 +150,9 @@ def doLatticeStateUpdate(state: LatticeState):
                                                  state.lattice.particles.size)])
     _doOrientationSweep(state.lattice.particles,
                         indexes,
-                        state.parameters.temperature,
-                        state.parameters.lam,
-                        state.parameters.tau,
+                        float(state.parameters.temperature),
+                        float(state.parameters.lam),
+                        float(state.parameters.tau),
                         state.wiggleRate)
     state.iterations += 1
     state.latticeAverages = np.append(state.latticeAverages,

@@ -129,7 +129,7 @@ class SimulationRunner(threading.Thread):
         self._starting = True
 
         # for parallel tempering
-        self._temperatures = np.array(sorted([state.parameters.temperature for state in self.states]))
+        self._temperatures = np.array(sorted([float(state.parameters.temperature) for state in self.states]))
 
     def run(self):
         q = mp.Queue()
@@ -163,7 +163,7 @@ class SimulationRunner(threading.Thread):
                     state.wiggleRateValues = msg.wiggleRateValues
                 if messageType == MessageType.ParallelTemperingSignUp:
                     # add this state to the waiting list for parallel tempering
-                    temperatureIndex = np.nonzero(np.isclose(self._temperatures, msg.parameters.temperature, atol=1e-4))[0][0]
+                    temperatureIndex = np.nonzero(np.isclose(self._temperatures, float(msg.parameters.temperature)))[0][0]
                     ptReady[temperatureIndex] = msg
 
             # process waiting list for parallel tempering in random order
@@ -188,8 +188,8 @@ class SimulationRunner(threading.Thread):
             ptReady.pop(j)
 
     def _doParallelTemperingDecision(self, p1: ParallelTemperingParameters, p2: ParallelTemperingParameters):
-        t1, e1, pipe1 = p1.parameters.temperature, p1.energy, p1.pipe
-        t2, e2, pipe2 = p2.parameters.temperature, p2.energy, p2.pipe
+        t1, e1, pipe1 = float(p1.parameters.temperature), p1.energy, p1.pipe
+        t2, e2, pipe2 = float(p2.parameters.temperature), p2.energy, p2.pipe
         dB = 1 / t1 - 1 / t2
         dE = e1 - e2
         if dB * dE > 0 or np.random.random() < np.exp(dB * dE):

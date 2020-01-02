@@ -5,9 +5,10 @@ from latticemc.latticeTools import initializePartiallyOrdered
 from latticemc.randomQuaternion import randomQuaternion
 import numpy as np
 import time
+from decimal import Decimal
 
-temperatures = np.arange(0.2, 1, 0.1)
-states = [LatticeState(parameters=DefiningParameters(temperature=t, lam=0.3, tau=1),
+temperatures = np.arange(0.4, 1.2, 0.02)
+states = [LatticeState(parameters=DefiningParameters(temperature=round(Decimal(t), 2), lam=round(Decimal(0.3), 2), tau=round(Decimal(1), 1)),
                        lattice=Lattice(8, 8, 8))
           for t in temperatures]
 for state in states:
