@@ -11,6 +11,7 @@ from enum import Enum
 from collections import namedtuple
 from typing import Dict, Tuple, List
 
+
 class MessageType(Enum):
     OrderParameters = 1
     Fluctuations = 2
@@ -79,27 +80,44 @@ class SimulationProcess(mp.Process):
             fluctuationsBroadcaster,
             stateBroadcaster
         ]
+
+        if self.parallelTemperingInterval is not None:
+            parallelTemperingUpdater = CallbackUpdater(
+                callback=lambda state: self._parallelTempering(localHistory, state),
+                howOften=self.parallelTemperingInterval,
+                sinceWhen=self.parallelTemperingInterval
+            )
+            perStateUpdaters.append(parallelTemperingUpdater)
+
         try:
             for it in range(self.cycles):
                 simulationNumba.doLatticeStateUpdate(state)
                 for u in perStateUpdaters:
                     u.perform(state)
 
-                if self.parallelTemperingInterval is not None and it % self.parallelTemperingInterval == 0 and it > 0:
-                    energy = localHistory[self.params].orderParameters['energy'][-1] * np.multiply.reduce(self.latticeSize)
-                    our, theirs = mp.Pipe()
-                    self.queue.put((MessageType.ParallelTemperingSignUp, ParallelTemperingParameters(params=self.params, energy=energy, pipe=theirs)))
-                    params = our.recv()
-                    if params != self.params:
-                        hist = localHistory.pop(self.params)
-                        localHistory[params] = hist
-                        self.params = params
-                        state.parameters = params
-
         except Exception as e:
             failsafeSaveSimulation(e, state, localHistory)
 
         self.queue.put((MessageType.State, state))
+
+    def _parallelTempering(self, localHistory: Dict[DefiningParameters, OrderParametersHistory], state: LatticeState):
+        """
+        Post a message to the queue that this configuration is ready
+        for parallel tempering. Open a pipe and wait for a new set
+        of parameters, then change them if they are different.
+        """
+        energy = localHistory[self.params].orderParameters['energy'][-1] * np.multiply.reduce(self.latticeSize)
+        our, theirs = mp.Pipe()
+        self.queue.put((MessageType.ParallelTemperingSignUp, ParallelTemperingParameters(params=self.params, energy=energy, pipe=theirs)))
+
+        # wait for decision in governing thread
+        params = our.recv()
+        if params != self.params:
+            # parameter change
+            hist = localHistory.pop(self.params)
+            localHistory[params] = hist
+            self.params = params
+            state.parameters = params
 
 
 class SimulationRunner(threading.Thread):
@@ -132,6 +150,7 @@ class SimulationRunner(threading.Thread):
         while self.alive():
             while not q.empty():
                 messageType, msg = q.get()
+
                 if messageType == MessageType.OrderParameters:
                     p, op = msg
                     self.orderParametersHistory[p].orderParameters = np.append(self.orderParametersHistory[p].orderParameters, op)
@@ -141,8 +160,10 @@ class SimulationRunner(threading.Thread):
                 if messageType == MessageType.State:
                     pass  # TODO
                 if messageType == MessageType.ParallelTemperingSignUp:
+                    # add this state to the waiting list for parallel tempering
                     ptReady[msg.params.temperature] = msg
 
+            # process waiting list for parallel tempering in random order
             if ptReady:
                 for _ in range(len(ptReady)):
                     self._doParallelTempering(ptReady)
@@ -150,15 +171,19 @@ class SimulationRunner(threading.Thread):
         [sim.join() for sim in self.simulations]
 
     def _doParallelTempering(self, ptReady: Dict[float, ParallelTemperingParameters]):
+        # only consider adjacent temperatures
         temperatures = sorted([p.temperature for p in self.parameters])
         i = np.random.randint(len(temperatures) - 1)
         j = i + 1
         ti = temperatures[i]
         tj = temperatures[j]
+
+        # check if adjacent temperatures exist in waiting list
         pi = ptReady[ti] if ti in ptReady else None
         pj = ptReady[tj] if tj in ptReady else None
         if pi is not None and pj is not None:
             self._doParallelTemperingDecision(pi, pj)
+            # remove the pair from the pool
             ptReady.pop(ti)
             ptReady.pop(tj)
 
@@ -168,10 +193,12 @@ class SimulationRunner(threading.Thread):
         dB = 1 / t1 - 1 / t2
         dE = e1 - e2
         if dB * dE > 0 or np.random.random() < np.exp(dB * dE):
+            # sending new parameters down the pipe will unblock waiting processes
             pipe1.send(p2.params)
             pipe2.send(p1.params)
             return True
         else:
+            # sending old parameters down the pipe will unblock waiting processes
             pipe1.send(p1.params)
             pipe2.send(p2.params)
             return False
