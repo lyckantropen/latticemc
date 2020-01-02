@@ -158,9 +158,9 @@ class SimulationRunner(threading.Thread):
         pi = ptReady[ti] if ti in ptReady else None
         pj = ptReady[tj] if tj in ptReady else None
         if pi is not None and pj is not None:
-            if self._doParallelTemperingDecision(pi, pj):
-                ptReady.pop(ti)
-                ptReady.pop(tj)
+            self._doParallelTemperingDecision(pi, pj)
+            ptReady.pop(ti)
+            ptReady.pop(tj)
 
     def _doParallelTemperingDecision(self, p1: ParallelTemperingParameters, p2: ParallelTemperingParameters):
         t1, e1, pipe1 = p1.params.temperature, p1.energy, p1.pipe
