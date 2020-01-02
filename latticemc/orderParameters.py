@@ -53,7 +53,7 @@ def calculateOrderParameters(state: LatticeState):
     q0, q2, w = _q0q2w(avg['t20'], avg['t22'], state.parameters.lam)
 
     energy = avg['energy']
-    p = avg['p']
+    p = np.abs(avg['p'])
     d322 = _d322(avg['t32'])
 
     return np.array([
