@@ -12,7 +12,7 @@ initializePartiallyOrdered(lattice, x=randomQuaternion(1))
 
 modelParams = DefiningParameters(temperature=0.9, lam=0.3, tau=1)
 state = LatticeState(parameters=modelParams, lattice=lattice)
-orderParametersHistory = {modelParams: OrderParametersHistory()}
+orderParametersHistory = OrderParametersHistory()
 
 orderParametersCalculator = OrderParametersCalculator(orderParametersHistory, howOften=1, sinceWhen=1, printEvery=50)
 fluctuationsCalculator = FluctuationsCalculator(orderParametersHistory, window=100, howOften=50, sinceWhen=100, printEvery=50)
