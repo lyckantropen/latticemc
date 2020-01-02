@@ -138,11 +138,6 @@ class SimulationRunner(threading.Thread):
         self.simulations = []
         for i, state in enumerate(self.states):
             sim = SimulationProcess(q, state, *self.args, **self.kwargs)
-
-            # ensure the last state is not tempered, because it won't have a pair
-            if len(self.states) % 2 == 1 and i == len(self.states) - 1:
-                sim.parallelTemperingInterval = None
-
             sim.start()
             self.simulations.append(sim)
 
