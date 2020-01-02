@@ -44,15 +44,15 @@ class SimulationProcess(mp.Process):
         self.parallelTemperingInterval = parallelTemperingInterval
 
     def run(self):
-        localHistory = {self.state.parameters: OrderParametersHistory()}
+        localHistory = OrderParametersHistory()
 
         orderParametersBroadcaster = CallbackUpdater(
-            callback=lambda _: self.queue.put((MessageType.OrderParameters, (self.state.parameters, localHistory[self.state.parameters].orderParameters[-self.reportOrderParametersEvery:]))),
+            callback=lambda _: self.queue.put((MessageType.OrderParameters, (self.state.parameters, localHistory.orderParameters[-self.reportOrderParametersEvery:]))),
             howOften=self.reportOrderParametersEvery,
             sinceWhen=self.reportOrderParametersEvery
         )
         fluctuationsBroadcaster = CallbackUpdater(
-            callback=lambda _: self.queue.put((MessageType.Fluctuations, (self.state.parameters, localHistory[self.state.parameters].fluctuations[-self.fluctuationsHowOften:]))),
+            callback=lambda _: self.queue.put((MessageType.Fluctuations, (self.state.parameters, localHistory.fluctuations[-self.fluctuationsHowOften:]))),
             howOften=self.fluctuationsHowOften,
             sinceWhen=self.fluctuationsWindow
         )
@@ -94,13 +94,13 @@ class SimulationProcess(mp.Process):
 
         self.queue.put((MessageType.State, self.state))
 
-    def _parallelTempering(self, localHistory: Dict[DefiningParameters, OrderParametersHistory]):
+    def _parallelTempering(self, localHistory: OrderParametersHistory):
         """
         Post a message to the queue that this configuration is ready
         for parallel tempering. Open a pipe and wait for a new set
         of parameters, then change them if they are different.
         """
-        energy = localHistory[self.state.parameters].orderParameters['energy'][-1] * self.state.lattice.particles.size
+        energy = localHistory.orderParameters['energy'][-1] * self.state.lattice.particles.size
         our, theirs = mp.Pipe()
         self.queue.put((MessageType.ParallelTemperingSignUp, ParallelTemperingParameters(parameters=self.state.parameters, energy=energy, pipe=theirs)))
 
@@ -108,8 +108,6 @@ class SimulationProcess(mp.Process):
         parameters = our.recv()
         if parameters != self.state.parameters:
             # parameter change
-            hist = localHistory.pop(self.state.parameters)
-            localHistory[parameters] = hist
             self.state.parameters = parameters
 
 
