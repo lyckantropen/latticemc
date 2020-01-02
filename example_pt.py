@@ -1,6 +1,8 @@
 from latticemc.definitions import OrderParametersHistory, DefiningParameters, LatticeState, Lattice
 from latticemc.updaters import DerivativeWiggleRateAdjustor, RandomWiggleRateAdjustor
 from latticemc.parallel import SimulationRunner
+from latticemc.latticeTools import initializePartiallyOrdered
+from latticemc.randomQuaternion import randomQuaternion
 import numpy as np
 import time
 
@@ -8,6 +10,9 @@ temperatures = np.arange(0.2, 1, 0.1)
 states = [LatticeState(parameters=DefiningParameters(temperature=t, lam=0.3, tau=1),
                        lattice=Lattice(8, 8, 8))
           for t in temperatures]
+for state in states:
+    initializePartiallyOrdered(state.lattice, x=randomQuaternion(1.0))
+
 orderParametersHistory = {state.parameters: OrderParametersHistory() for state in states}
 
 perStateUpdaters = [
