@@ -1,5 +1,5 @@
 from .definitions import Lattice, LatticeState, OrderParametersHistory, DefiningParameters
-from .updaters import CallbackUpdater, FluctuationsCalculator, OrderParametersCalculator
+from .updaters import CallbackUpdater, FluctuationsCalculator, OrderParametersCalculator, Updater
 from .randomQuaternion import randomQuaternion
 from .latticeTools import initializePartiallyOrdered
 from .failsafe import failsafeSaveSimulation
@@ -8,25 +8,31 @@ import multiprocessing as mp
 import threading
 import numpy as np
 from enum import Enum
-
+from collections import namedtuple
+from typing import Dict, Tuple, List
 
 class MessageType(Enum):
     OrderParameters = 1
     Fluctuations = 2
     State = 3
+    ParallelTemperingSignUp = 4
+
+
+ParallelTemperingParameters = namedtuple('ParallelTemperingParameters', ['params', 'energy', 'pipe'])
 
 
 class SimulationProcess(mp.Process):
     def __init__(self,
                  queue: mp.Queue,
                  params: DefiningParameters,
-                 latticeSize: tuple,
+                 latticeSize: Tuple[int, int, int],
                  cycles: int,
                  reportOrderParametersEvery: int = 1000,
                  reportStateEvery: int = 1000,
                  fluctuationsHowOften: int = 50,
                  fluctuationsWindow: int = 100,
-                 perStateUpdaters: list = []
+                 perStateUpdaters: List[Updater] = [],
+                 parallelTemperingInterval: int = None
                  ):
         super().__init__()
         self.queue = queue
@@ -38,6 +44,7 @@ class SimulationProcess(mp.Process):
         self.perStateUpdaters = perStateUpdaters
         self.fluctuationsHowOften = fluctuationsHowOften
         self.fluctuationsWindow = fluctuationsWindow
+        self.parallelTemperingInterval = parallelTemperingInterval
 
     def run(self):
         state = LatticeState(parameters=self.params, lattice=Lattice(*self.latticeSize))
@@ -50,7 +57,7 @@ class SimulationProcess(mp.Process):
             sinceWhen=self.reportOrderParametersEvery
         )
         fluctuationsBroadcaster = CallbackUpdater(
-            callback=lambda state: self.queue.put((MessageType.Fluctuations, (self.params, localHistory[self.params].fluctuations[-50:]))),
+            callback=lambda state: self.queue.put((MessageType.Fluctuations, (self.params, localHistory[self.params].fluctuations[-self.fluctuationsHowOften:]))),
             howOften=self.fluctuationsHowOften,
             sinceWhen=self.fluctuationsWindow
         )
@@ -60,7 +67,7 @@ class SimulationProcess(mp.Process):
             sinceWhen=self.reportStateEvery
         )
 
-        orderParametersCalculator = OrderParametersCalculator(localHistory, howOften=1, sinceWhen=1)
+        orderParametersCalculator = OrderParametersCalculator(localHistory, howOften=1, sinceWhen=0)
         fluctuationsCalculator = FluctuationsCalculator(localHistory, window=self.fluctuationsWindow, howOften=self.fluctuationsHowOften, sinceWhen=self.fluctuationsWindow)
         perStateUpdaters = [
             orderParametersCalculator,
@@ -77,6 +84,18 @@ class SimulationProcess(mp.Process):
                 simulationNumba.doLatticeStateUpdate(state)
                 for u in perStateUpdaters:
                     u.perform(state)
+
+                if self.parallelTemperingInterval is not None and it % self.parallelTemperingInterval == 0 and it > 0:
+                    energy = localHistory[self.params].orderParameters['energy'][-1] * np.multiply.reduce(self.latticeSize)
+                    our, theirs = mp.Pipe()
+                    self.queue.put((MessageType.ParallelTemperingSignUp, ParallelTemperingParameters(params=self.params, energy=energy, pipe=theirs)))
+                    params = our.recv()
+                    if params != self.params:
+                        hist = localHistory.pop(self.params)
+                        localHistory[params] = hist
+                        self.params = params
+                        state.parameters = params
+
         except Exception as e:
             failsafeSaveSimulation(e, state, localHistory)
 
@@ -84,7 +103,11 @@ class SimulationProcess(mp.Process):
 
 
 class SimulationRunner(threading.Thread):
-    def __init__(self, parameters, orderParametersHistory, *args, **kwargs):
+    def __init__(self,
+                 parameters: DefiningParameters,
+                 orderParametersHistory: Dict[DefiningParameters, OrderParametersHistory],
+                 *args,
+                 **kwargs):
         threading.Thread.__init__(self)
 
         self.parameters = parameters
@@ -104,6 +127,8 @@ class SimulationRunner(threading.Thread):
             self.simulations.append(sim)
 
         self._starting = False
+
+        ptReady = {}
         while self.alive():
             while not q.empty():
                 messageType, msg = q.get()
@@ -114,8 +139,42 @@ class SimulationRunner(threading.Thread):
                     p, fl = msg
                     self.orderParametersHistory[p].fluctuations = np.append(self.orderParametersHistory[p].fluctuations, fl)
                 if messageType == MessageType.State:
-                    pass
+                    pass  # TODO
+                if messageType == MessageType.ParallelTemperingSignUp:
+                    ptReady[msg.params.temperature] = msg
+
+            if ptReady:
+                for _ in range(len(ptReady)):
+                    self._doParallelTempering(ptReady)
+
         [sim.join() for sim in self.simulations]
+
+    def _doParallelTempering(self, ptReady: Dict[float, ParallelTemperingParameters]):
+        temperatures = sorted([p.temperature for p in self.parameters])
+        i = np.random.randint(len(temperatures) - 1)
+        j = i + 1
+        ti = temperatures[i]
+        tj = temperatures[j]
+        pi = ptReady[ti] if ti in ptReady else None
+        pj = ptReady[tj] if tj in ptReady else None
+        if pi is not None and pj is not None:
+            if self._doParallelTemperingDecision(pi, pj):
+                ptReady.pop(ti)
+                ptReady.pop(tj)
+
+    def _doParallelTemperingDecision(self, p1: ParallelTemperingParameters, p2: ParallelTemperingParameters):
+        t1, e1, pipe1 = p1.params.temperature, p1.energy, p1.pipe
+        t2, e2, pipe2 = p2.params.temperature, p2.energy, p2.pipe
+        dB = 1 / t1 - 1 / t2
+        dE = e1 - e2
+        if dB * dE > 0 or np.random.random() < np.exp(dB * dE):
+            pipe1.send(p2.params)
+            pipe2.send(p1.params)
+            return True
+        else:
+            pipe1.send(p1.params)
+            pipe2.send(p2.params)
+            return False
 
     def stop(self):
         [sim.terminate() for sim in self.simulations]
