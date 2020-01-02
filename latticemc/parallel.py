@@ -152,7 +152,12 @@ class SimulationRunner(threading.Thread):
                     self.orderParametersHistory[p].fluctuations = np.append(self.orderParametersHistory[p].fluctuations, fl)
                 if messageType == MessageType.State:
                     # update the state
-                    [state for state in self.states if state.parameters == msg.parameters][0] = msg
+                    state = [state for state in self.states if state.parameters == msg.parameters][0]
+                    state.iterations = msg.iterations
+                    state.lattice = msg.lattice
+                    state.latticeAverages = msg.latticeAverages
+                    state.wiggleRate = msg.wiggleRate
+                    state.wiggleRateValues = msg.wiggleRateValues
                 if messageType == MessageType.ParallelTemperingSignUp:
                     # add this state to the waiting list for parallel tempering
                     ptReady[msg.parameters.temperature] = msg
