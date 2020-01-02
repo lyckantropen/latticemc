@@ -20,7 +20,8 @@ if __name__ == "__main__":
                               latticeSize=(8, 8, 8),
                               cycles=10000,
                               reportOrderParametersEvery=100,
-                              perStateUpdaters=perStateUpdaters)
+                              perStateUpdaters=perStateUpdaters,
+                              parallelTemperingInterval=100)
     runner.start()
 
     while runner.alive():
