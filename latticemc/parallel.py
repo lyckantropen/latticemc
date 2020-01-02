@@ -128,6 +128,9 @@ class SimulationRunner(threading.Thread):
         self.simulations = []
         self._starting = True
 
+        # for parallel tempering
+        self._temperatures = np.array(sorted([state.parameters.temperature for state in self.states]))
+
     def run(self):
         q = mp.Queue()
 
@@ -160,7 +163,8 @@ class SimulationRunner(threading.Thread):
                     state.wiggleRateValues = msg.wiggleRateValues
                 if messageType == MessageType.ParallelTemperingSignUp:
                     # add this state to the waiting list for parallel tempering
-                    ptReady[msg.parameters.temperature] = msg
+                    temperatureIndex = np.nonzero(np.isclose(self._temperatures, msg.parameters.temperature, atol=1e-4))[0][0]
+                    ptReady[temperatureIndex] = msg
 
             # process waiting list for parallel tempering in random order
             if ptReady:
@@ -171,20 +175,17 @@ class SimulationRunner(threading.Thread):
 
     def _doParallelTempering(self, ptReady: Dict[float, ParallelTemperingParameters]):
         # only consider adjacent temperatures
-        temperatures = sorted([state.parameters.temperature for state in self.states])
-        i = np.random.randint(len(temperatures) - 1)
+        i = np.random.randint(len(self._temperatures) - 1)
         j = i + 1
-        ti = temperatures[i]
-        tj = temperatures[j]
 
         # check if adjacent temperatures exist in waiting list
-        pi = ptReady[ti] if ti in ptReady else None
-        pj = ptReady[tj] if tj in ptReady else None
+        pi = ptReady[i] if i in ptReady else None
+        pj = ptReady[j] if j in ptReady else None
         if pi is not None and pj is not None:
             self._doParallelTemperingDecision(pi, pj)
             # remove the pair from the pool
-            ptReady.pop(ti)
-            ptReady.pop(tj)
+            ptReady.pop(i)
+            ptReady.pop(j)
 
     def _doParallelTemperingDecision(self, p1: ParallelTemperingParameters, p2: ParallelTemperingParameters):
         t1, e1, pipe1 = p1.parameters.temperature, p1.energy, p1.pipe
