@@ -4,8 +4,8 @@ from decimal import Decimal
 
 # per-particle degrees of freedom
 particleDoF = np.dtype({
-    'names': [ 'x', 'p' ],
-    'formats': [ (np.float32, (4,)), np.int8 ]
+    'names': ['x', 'p'],
+    'formats': [(np.float32, (4,)), np.int8]
 }, align=True)
 
 # declaration of the above for use in OpenCL
@@ -30,7 +30,7 @@ particleProps = np.dtype({
                 (np.float32, (10,)),
                 np.float32,
                 np.float32
-                ]    
+                ]
 }, align=True)
 
 # declaration of the above for use in OpenCL

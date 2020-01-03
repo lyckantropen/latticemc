@@ -4,7 +4,6 @@ from .definitions import LatticeState, OrderParametersHistory
 def failsafeSaveSimulation(e: Exception, state: LatticeState, orderParametersHistory: OrderParametersHistory):
     try:
         import traceback
-        import sys
         tb = traceback.format_exc()
         print(tb)
         print(f'Attempting to save the state of the simulation: {state.parameters}')

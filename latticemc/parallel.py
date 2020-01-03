@@ -8,6 +8,8 @@ import numpy as np
 from enum import Enum
 from collections import namedtuple
 from typing import Dict, List
+import logging
+logger = logging.getLogger(__name__)
 
 
 class MessageType(Enum):
@@ -28,6 +30,7 @@ class SimulationProcess(mp.Process):
     particular configuration of parameters. Otherwise the parameters
     are constant.
     """
+
     def __init__(self,
                  index: int,
                  queue: mp.Queue,
@@ -147,7 +150,7 @@ class SimulationProcess(mp.Process):
 
         # wait for decision in governing thread
         if not our.poll(30):
-            print(f'{self.state.parameters}: No parallel tempering data to exchange')
+            logger.warning(f'SimulationProcess[{self.index}, {self.state.parameters}]: No parallel tempering data to exchange')
         else:
             parameters = our.recv()
             if parameters != self.state.parameters:
@@ -175,7 +178,7 @@ class SimulationRunner(threading.Thread):
         self.orderParametersHistory = orderParametersHistory
         self.args = args
         self.kwargs = kwargs
-        self.simulations : List[SimulationProcess] = []
+        self.simulations: List[SimulationProcess] = []
 
         # set to False when all processes have started running
         self._starting = True
@@ -221,7 +224,7 @@ class SimulationRunner(threading.Thread):
                     # towards the end of the simulation.
                 if messageType == MessageType.Error:
                     index, parameters, exception = msg
-                    print(f'SimulationProcess {index} has failed for {parameters} with exception "{exception}"')
+                    logger.error(f'SimulationProcess[{index},{parameters}]: Failed with exception "{exception}"')
 
             # process waiting list for parallel tempering in random order
             if ptReady:

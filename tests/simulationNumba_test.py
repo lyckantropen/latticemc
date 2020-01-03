@@ -6,7 +6,7 @@ from latticemc.simulationNumba import (
     _doOrientationSweep
 )
 from latticemc.tensorTools import quaternionToOrientation
-from latticemc.definitions import particleDoF, particleProps, Lattice
+from latticemc.definitions import particleDoF, Lattice
 
 
 def _t20t22Matrix(ex, ey, ez):
@@ -85,7 +85,7 @@ def test__doOrientationSweep():
     lattice_after = lattice.copy()
     indexes = np.array(list(np.ndindex((3, 3, 3)))).reshape(3 * 3 * 3, 3)
 
-    lat = Lattice(3,3,3)
+    lat = Lattice(3, 3, 3)
     lat.particles = lattice_after
     _doOrientationSweep(lat, indexes, 2.4, 0.3, 1, 0.1)
     assert np.sum(lattice['x'] == lattice_after['x']) < lattice['x'].size
