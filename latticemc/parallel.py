@@ -7,7 +7,8 @@ import threading
 import numpy as np
 from enum import Enum
 from collections import namedtuple
-from typing import Dict, List
+from typing import Dict, List, Tuple
+from ctypes import c_double
 import logging
 logger = logging.getLogger(__name__)
 
@@ -62,6 +63,7 @@ class SimulationProcess(mp.Process):
         self.parallelTemperingInterval = parallelTemperingInterval
 
         self.running = mp.Value('i', 1)
+        self.temperature = mp.Value(c_double, float(self.state.parameters.temperature))
 
         # how many data points truly belong to the present configuration
         # is important when parallel tempering is enabled
@@ -171,7 +173,9 @@ class SimulationProcess(mp.Process):
                 self._broadcastState()
 
                 # parameter change
-                self.state.parameters = parameters
+                with self.temperature.get_lock():
+                    self.state.parameters = parameters
+                    self.temperature.value = float(parameters.temperature)
 
                 # reset the number of results that can be safely broadcasted as coming from this configuration
                 self._relevantHistoryLength = 0
@@ -208,7 +212,7 @@ class SimulationRunner(threading.Thread):
 
         self._starting = False
 
-        ptReady = {}
+        ptReady: Dict[int, Tuple[ParallelTemperingParameters, SimulationProcess]] = {}
         while self.alive():
             while not q.empty():
                 messageType, index, msg = q.get()
@@ -228,11 +232,18 @@ class SimulationRunner(threading.Thread):
                     state.latticeAverages = msg.latticeAverages
                     state.wiggleRate = msg.wiggleRate
                 if messageType == MessageType.ParallelTemperingSignUp:
-                    # add this state to the waiting list for parallel tempering
+                    # find adjacent temperature
                     temperatureIndex = self._temperatures.index(msg.parameters.temperature)
-                    ptReady[temperatureIndex] = msg
-                    # TODO: We don't know if the adjacent temperature process is running, so the signing up process could stall
-                    # towards the end of the simulation.
+                    adjacentTempIndex = temperatureIndex + 1
+                    try:
+                        # check if simulation exists
+                        adjSim = [sim for sim in self.simulations
+                                  if np.all(np.isclose(sim.temperature.value, float(self._temperatures[adjacentTempIndex]))) and
+                                  sim.running][0]
+                        ptReady[temperatureIndex] = (msg, adjSim)
+                    except IndexError:
+                        # bounce and unblock requesting process because it doesn't have a PT counterpart
+                        msg.pipe.send(msg.parameters)
                 if messageType == MessageType.Error:
                     parameters, exception = msg
                     logger.error(f'SimulationProcess[{index},{parameters}]: Failed with exception "{exception}"')
@@ -242,19 +253,26 @@ class SimulationRunner(threading.Thread):
 
             # process waiting list for parallel tempering in random order
             if ptReady:
+                # unblock processes that don't have a PT counterpart
+                items = list(ptReady.items())
+                for t, (p, adjSim) in items:
+                    if not adjSim.running.value:
+                        p.pipe.send(p.parameters)
+                        ptReady.pop(t)
+
                 for _ in range(len(ptReady)):
                     self._doParallelTempering(ptReady)
 
         [sim.join() for sim in self.simulations]
 
-    def _doParallelTempering(self, ptReady: Dict[int, ParallelTemperingParameters]):
+    def _doParallelTempering(self, ptReady: Dict[int, Tuple[ParallelTemperingParameters, SimulationProcess]]):
         # only consider adjacent temperatures
         i = np.random.randint(len(self._temperatures) - 1)
         j = i + 1
 
         # check if adjacent temperatures exist in waiting list
-        pi = ptReady[i] if i in ptReady else None
-        pj = ptReady[j] if j in ptReady else None
+        (pi, _) = ptReady[i] if i in ptReady else (None, None)
+        (pj, _) = ptReady[j] if j in ptReady else (None, None)
         if pi is not None and pj is not None:
             self._doParallelTemperingDecision(pi, pj)
             # remove the pair from the pool
