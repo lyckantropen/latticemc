@@ -97,16 +97,28 @@ class SimulationProcess(mp.Process):
         self.queue.put((MessageType.State, self.state))
 
     def _broadcastOrderParameters(self):
+        """
+        Publish at most self._relevantHistoryLength order
+        parameters from history to the governing thread.
+        """
         self.queue.put((MessageType.OrderParameters,
                         (self.state.parameters,
                          self.localHistory.orderParameters[-min(self._relevantHistoryLength, self.reportOrderParametersEvery):])))
 
     def _broadcastFluctuations(self):
+        """
+        Publish at most self._relevantHistoryLength fluctuation
+        values from history to the governing thread.
+        """
         self.queue.put((MessageType.Fluctuations,
                         (self.state.parameters,
                          self.localHistory.fluctuations[-min(self._relevantHistoryLength, self.fluctuationsHowOften):])))
 
     def _broadcastState(self):
+        """
+        Publish the current Lattice State to the
+        governing thread.
+        """
         self.queue.put((MessageType.State, self.state))
 
     def _parallelTempering(self):
@@ -114,6 +126,8 @@ class SimulationProcess(mp.Process):
         Post a message to the queue that this configuration is ready
         for parallel tempering. Open a pipe and wait for a new set
         of parameters, then change them if they are different.
+
+        Upon change, publish the relevant order parameters history.
         """
         energy = self.localHistory.orderParameters['energy'][-1] * self.state.lattice.particles.size
         our, theirs = mp.Pipe()
@@ -149,7 +163,9 @@ class SimulationRunner(threading.Thread):
         self.orderParametersHistory = orderParametersHistory
         self.args = args
         self.kwargs = kwargs
-        self.simulations = []
+        self.simulations : list = []
+
+        # set to False when all processes have started running
         self._starting = True
 
         # for parallel tempering
@@ -158,6 +174,7 @@ class SimulationRunner(threading.Thread):
     def run(self):
         q = mp.Queue()
 
+        # TODO: somehow index simulations by current temperature
         self.simulations = []
         for i, state in enumerate(self.states):
             sim = SimulationProcess(q, state, *self.args, **self.kwargs)
@@ -188,6 +205,8 @@ class SimulationRunner(threading.Thread):
                     # add this state to the waiting list for parallel tempering
                     temperatureIndex = self._temperatures.index(msg.parameters.temperature)
                     ptReady[temperatureIndex] = msg
+                    # TODO: We don't know if the adjacent temperature process is running, so the signing up process could stall
+                    # towards the end of the simulation.
 
             # process waiting list for parallel tempering in random order
             if ptReady:
@@ -196,7 +215,7 @@ class SimulationRunner(threading.Thread):
 
         [sim.join() for sim in self.simulations]
 
-    def _doParallelTempering(self, ptReady: Dict[float, ParallelTemperingParameters]):
+    def _doParallelTempering(self, ptReady: Dict[int, ParallelTemperingParameters]):
         # only consider adjacent temperatures
         i = np.random.randint(len(self._temperatures) - 1)
         j = i + 1

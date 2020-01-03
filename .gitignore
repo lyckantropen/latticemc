@@ -3,3 +3,4 @@
 **.dump
 **/desc.txt
 *.egg-info
+.mypy_cache

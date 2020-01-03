@@ -4,13 +4,13 @@ from latticemc.randomQuaternion import randomQuaternion
 from latticemc.updaters import OrderParametersCalculator, FluctuationsCalculator, DerivativeWiggleRateAdjustor, RandomWiggleRateAdjustor
 from latticemc.failsafe import failsafeSaveSimulation
 from latticemc import simulationNumba
-
+from decimal import Decimal
 
 lattice = Lattice(9, 9, 9)
 initializePartiallyOrdered(lattice, x=randomQuaternion(1))
 # initializeRandom(lattice)
 
-modelParams = DefiningParameters(temperature=0.9, lam=0.3, tau=1)
+modelParams = DefiningParameters(temperature=round(Decimal(0.9), 1), lam=round(Decimal(0.3), 1), tau=round(Decimal(1), 1))
 state = LatticeState(parameters=modelParams, lattice=lattice)
 orderParametersHistory = OrderParametersHistory()
 
