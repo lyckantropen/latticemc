@@ -49,7 +49,7 @@ def calculateOrderParameters(state: LatticeState):
     Calculate instantaneous order parameters after
     the LatticeState has been updated.
     """
-    avg = state.latticeAverages[-1]
+    avg = state.latticeAverages[0]
     q0, q2, w = _q0q2w(avg['t20'], avg['t22'], float(state.parameters.lam))
 
     energy = avg['energy']

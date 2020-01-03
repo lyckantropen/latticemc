@@ -1,5 +1,5 @@
 from latticemc.definitions import OrderParametersHistory, DefiningParameters, LatticeState, Lattice
-from latticemc.updaters import DerivativeWiggleRateAdjustor, RandomWiggleRateAdjustor
+from latticemc.updaters import RandomWiggleRateAdjustor
 from latticemc.parallel import SimulationRunner
 from latticemc.latticeTools import initializePartiallyOrdered
 from latticemc.randomQuaternion import randomQuaternion
@@ -17,7 +17,7 @@ for state in states:
 orderParametersHistory = {state.parameters: OrderParametersHistory() for state in states}
 
 perStateUpdaters = [
-    DerivativeWiggleRateAdjustor(howMany=100, howOften=10, sinceWhen=101),
+    # DerivativeWiggleRateAdjustor(howMany=100, howOften=10, sinceWhen=101),
     RandomWiggleRateAdjustor(scale=0.001, howOften=10, sinceWhen=1),
     RandomWiggleRateAdjustor(scale=1.0, resetValue=1.0, howOften=1000, sinceWhen=1000)
 ]

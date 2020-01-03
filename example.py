@@ -19,7 +19,7 @@ fluctuationsCalculator = FluctuationsCalculator(orderParametersHistory, window=1
 updaters = [
     orderParametersCalculator,
     fluctuationsCalculator,
-    DerivativeWiggleRateAdjustor(howMany=100, howOften=10, sinceWhen=101),
+    DerivativeWiggleRateAdjustor(orderParametersHistory, howMany=100, howOften=10, sinceWhen=101),
     RandomWiggleRateAdjustor(scale=0.001, howOften=10, sinceWhen=1),
     RandomWiggleRateAdjustor(scale=1.0, resetValue=1.0, howOften=1000, sinceWhen=1000),
 ]
