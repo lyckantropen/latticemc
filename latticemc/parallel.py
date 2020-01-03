@@ -61,8 +61,7 @@ class SimulationProcess(mp.Process):
         self.fluctuationsWindow = fluctuationsWindow
         self.parallelTemperingInterval = parallelTemperingInterval
 
-        # flag, set by governing thread upon receiving Finished
-        self.running = True
+        self.running = mp.Value('i', 1)
 
         # how many data points truly belong to the present configuration
         # is important when parallel tempering is enabled
@@ -117,9 +116,11 @@ class SimulationProcess(mp.Process):
         except Exception as e:
             self.queue.put((MessageType.Error, self.index, (self.state.parameters, e)))
             failsafeSaveSimulation(e, self.state, self.localHistory)
+            self.running.value = 0
 
         self.queue.put((MessageType.State, self.index, self.state))
         self.queue.put((MessageType.Finished, self.index, self.state.parameters))
+        self.running.value = 0
 
     def _broadcastOrderParameters(self):
         """
@@ -234,11 +235,9 @@ class SimulationRunner(threading.Thread):
                     # towards the end of the simulation.
                 if messageType == MessageType.Error:
                     parameters, exception = msg
-                    self.simulations[index].running = False
                     logger.error(f'SimulationProcess[{index},{parameters}]: Failed with exception "{exception}"')
                 if messageType == MessageType.Finished:
                     parameters = msg
-                    self.simulations[index].running = False
                     logger.info(f'SimulationProcess[{index},{parameters}]: Finished succesfully')
 
             # process waiting list for parallel tempering in random order
@@ -282,4 +281,4 @@ class SimulationRunner(threading.Thread):
         [sim.terminate() for sim in self.simulations]
 
     def alive(self):
-        return self._starting or [sim for sim in self.simulations if sim.is_alive() or sim.running]
+        return self._starting or [sim for sim in self.simulations if sim.is_alive() or sim.running.value]
