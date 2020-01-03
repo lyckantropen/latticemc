@@ -15,6 +15,7 @@ class MessageType(Enum):
     Fluctuations = 2
     State = 3
     ParallelTemperingSignUp = 4
+    Error = 5
 
 
 ParallelTemperingParameters = namedtuple('ParallelTemperingParameters', ['parameters', 'energy', 'pipe'])
@@ -28,6 +29,7 @@ class SimulationProcess(mp.Process):
     are constant.
     """
     def __init__(self,
+                 index: int,
                  queue: mp.Queue,
                  initialState: LatticeState,
                  cycles: int,
@@ -39,6 +41,7 @@ class SimulationProcess(mp.Process):
                  parallelTemperingInterval: int = None
                  ):
         super().__init__()
+        self.index = index
         self.queue = queue
         self.state = initialState
         self.cycles = cycles
@@ -94,12 +97,15 @@ class SimulationProcess(mp.Process):
 
         try:
             for it in range(self.cycles):
+                if np.random.random() < 0.05:
+                    raise Exception('test')
                 simulationNumba.doLatticeStateUpdate(self.state)
                 self._relevantHistoryLength += 1
                 for u in perStateUpdaters:
                     u.perform(self.state)
 
         except Exception as e:
+            self.queue.put((MessageType.Error, (self.index, self.state.parameters, e)))
             failsafeSaveSimulation(e, self.state, self.localHistory)
 
         self.queue.put((MessageType.State, self.state))
@@ -185,7 +191,7 @@ class SimulationRunner(threading.Thread):
         # TODO: somehow index simulations by current temperature
         self.simulations = []
         for i, state in enumerate(self.states):
-            sim = SimulationProcess(q, state, *self.args, **self.kwargs)
+            sim = SimulationProcess(i, q, state, *self.args, **self.kwargs)
             sim.start()
             self.simulations.append(sim)
 
@@ -215,6 +221,9 @@ class SimulationRunner(threading.Thread):
                     ptReady[temperatureIndex] = msg
                     # TODO: We don't know if the adjacent temperature process is running, so the signing up process could stall
                     # towards the end of the simulation.
+                if messageType == MessageType.Error:
+                    index, parameters, exception = msg
+                    print(f'SimulationProcess {index} has failed for {parameters} with exception "{exception}"')
 
             # process waiting list for parallel tempering in random order
             if ptReady:
