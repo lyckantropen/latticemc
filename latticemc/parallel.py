@@ -21,6 +21,12 @@ ParallelTemperingParameters = namedtuple('ParallelTemperingParameters', ['parame
 
 
 class SimulationProcess(mp.Process):
+    """
+    A process representing one simulation over a lattice of particles.
+    When parallel tempering is enabled, does not necessarily mean a
+    particular configuration of parameters. Otherwise the parameters
+    are constant.
+    """
     def __init__(self,
                  queue: mp.Queue,
                  initialState: LatticeState,
@@ -43,6 +49,8 @@ class SimulationProcess(mp.Process):
         self.fluctuationsWindow = fluctuationsWindow
         self.parallelTemperingInterval = parallelTemperingInterval
 
+        # how many data points truly belong to the present configuration
+        # is important when parallel tempering is enabled
         self._relevantHistoryLength = 0
         self.localHistory = OrderParametersHistory()
 
@@ -163,7 +171,7 @@ class SimulationRunner(threading.Thread):
         self.orderParametersHistory = orderParametersHistory
         self.args = args
         self.kwargs = kwargs
-        self.simulations : list = []
+        self.simulations : List[SimulationProcess] = []
 
         # set to False when all processes have started running
         self._starting = True
