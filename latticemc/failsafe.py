@@ -5,9 +5,8 @@ def failsafeSaveSimulation(e: Exception, state: LatticeState, orderParametersHis
     try:
         import traceback
         import sys
-        print(f'Exception: {e}')
-        print('Traceback:')
-        traceback.print_exc(file=sys.stdout)
+        tb = traceback.format_exc()
+        print(tb)
         print(f'Attempting to save the state of the simulation: {state.parameters}')
 
         from datetime import datetime
@@ -27,7 +26,8 @@ def failsafeSaveSimulation(e: Exception, state: LatticeState, orderParametersHis
             f'time={ts}\niterations={state.iterations}\n'
             f'parameters={state.parameters}\n'
             f'latticeSize={state.lattice.particles.shape}\n'
-            f'wiggleRate={state.wiggleRate}\n'
+            f'wiggleRate={state.wiggleRate}\n\n'
+            f'{tb}\n'
         )
         descFile = destPath / 'desc.txt'
         descFile.write_text(descStr)
