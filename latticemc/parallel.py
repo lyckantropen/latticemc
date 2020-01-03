@@ -7,7 +7,7 @@ import threading
 import numpy as np
 from enum import Enum
 from collections import namedtuple
-from typing import Dict, List, Tuple
+from typing import Dict, List
 from ctypes import c_double
 import logging
 logger = logging.getLogger(__name__)
@@ -165,9 +165,9 @@ class SimulationProcess(mp.Process):
         if not our.poll(30):
             logger.warning(f'SimulationProcess[{self.index}, {self.state.parameters}]: No parallel tempering data to exchange')
         parameters = our.recv()
-        
+
         logger.debug(f'SimulationProcess[{self.index}, {self.state.parameters}]: Received parameters for exchange: {parameters}')
-        
+
         if parameters != self.state.parameters:
             # broadcast what we can
             self._broadcastOrderParameters()
@@ -248,6 +248,10 @@ class SimulationRunner(threading.Thread):
         [sim.join() for sim in self.simulations]
 
     def _adjacentTemperature(self, pi: ParallelTemperingParameters):
+        """
+        Find the value of adjacent temperature within the
+        values that are present in the simulations.
+        """
         tempIndex = self._temperatures.index(pi.parameters.temperature)
         if tempIndex + 1 == len(self._temperatures):
             return self._temperatures[tempIndex - 1]
@@ -255,6 +259,11 @@ class SimulationRunner(threading.Thread):
             return self._temperatures[tempIndex + 1]
 
     def _simulationRunningThisTemperature(self, temperature: float):
+        """
+        Return the running simulation that currently has
+        'temperature' set as the temperature it is running at.
+        If no such simulation can be found, return None.
+        """
         simsForTemp = [sim for sim in self.simulations if np.isclose(sim.temperature.value, temperature) and sim.running.value]
         if simsForTemp:
             return simsForTemp[0]
@@ -262,9 +271,14 @@ class SimulationRunner(threading.Thread):
             return None
 
     def _doParallelTempering(self, ptReady: List[ParallelTemperingParameters]):
+        """
+        Manage random selection of temperatures and exchanging
+        parameters between configurations using parameters and pipes provided
+        in 'ptReady'.
+        """
         # process waiting list for parallel tempering in random order
         import random
-        ptParam: ParallelTemperingParameters = None
+        ptParam = None
         it = len(ptReady)
         while it > 0 and ptReady:
             ptParam = random.choice(ptReady)
@@ -296,8 +310,8 @@ class SimulationRunner(threading.Thread):
 
     @staticmethod
     def _parallelTemperingDecision(p1: ParallelTemperingParameters, p2: ParallelTemperingParameters) -> bool:
-        t1, e1, pipe1 = float(p1.parameters.temperature), p1.energy, p1.pipe
-        t2, e2, pipe2 = float(p2.parameters.temperature), p2.energy, p2.pipe
+        t1, e1, _ = float(p1.parameters.temperature), p1.energy, p1.pipe
+        t2, e2, _ = float(p2.parameters.temperature), p2.energy, p2.pipe
         dB = 1 / t1 - 1 / t2
         dE = e1 - e2
         return dB * dE > 0 or np.random.random() < np.exp(dB * dE)
