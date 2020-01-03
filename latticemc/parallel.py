@@ -233,7 +233,7 @@ class SimulationRunner(threading.Thread):
                     state.wiggleRate = msg.wiggleRate
                 if messageType == MessageType.ParallelTemperingSignUp:
                     ptParameters = msg
-                    ptParameters.pipe.send(ptParameters.parameters)
+                    ptReady.append(ptParameters)
                 if messageType == MessageType.Error:
                     parameters, exception = msg
                     logger.error(f'SimulationProcess[{index},{parameters}]: Failed with exception "{exception}"')
