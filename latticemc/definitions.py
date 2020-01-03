@@ -32,6 +32,11 @@ gatheredOrderParameters = np.dtype([
     ('d322', float)
 ])
 
+# data type to store statistics
+simulationStats = np.dtype([
+    ('wiggleRate', float),
+])
+
 # declaration of the above for use in OpenCL
 particle_cdecl = """
 typedef struct __attribute__ ((packed)) {
@@ -82,11 +87,11 @@ class LatticeState:
 
     iterations: int = 0
     wiggleRate: float = 1
-    latticeAverages: np.ndarray = field(default_factory=lambda: np.empty(0, dtype=particle))
-    wiggleRateValues: np.ndarray = field(default_factory=lambda: np.empty(0, dtype=np.float32))
+    latticeAverages: np.ndarray = field(default_factory=lambda: np.empty(0, dtype=particle))  # instantaneous order parameters
 
 
 @dataclass
 class OrderParametersHistory:
     orderParameters: np.ndarray = field(default_factory=lambda: np.empty(0, dtype=gatheredOrderParameters))
     fluctuations: np.ndarray = field(default_factory=lambda: np.empty(0, dtype=gatheredOrderParameters))
+    stats: np.ndarray = field(default_factory=lambda: np.empty(0, dtype=simulationStats))

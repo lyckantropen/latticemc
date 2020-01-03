@@ -2,7 +2,7 @@ from abc import abstractmethod
 import numpy as np
 from .statistical import fluctuation
 from .orderParameters import calculateOrderParameters
-from .definitions import gatheredOrderParameters, LatticeState, OrderParametersHistory
+from .definitions import gatheredOrderParameters, LatticeState, OrderParametersHistory, simulationStats
 
 
 class Updater:
@@ -40,6 +40,7 @@ class OrderParametersCalculator(Updater):
     def update(self, state: LatticeState):
         op = calculateOrderParameters(state)
         self.orderParametersHistory.orderParameters = np.append(self.orderParametersHistory.orderParameters, op)
+        self.orderParametersHistory.stats = np.append(self.orderParametersHistory.stats, np.array([(state.wiggleRate,)], dtype=simulationStats))
         return op
 
     def formatValue(self, value):
@@ -81,13 +82,14 @@ class RandomWiggleRateAdjustor(Updater):
 
 
 class DerivativeWiggleRateAdjustor(Updater):
-    def __init__(self, howMany, *args, **kwargs):
+    def __init__(self, orderParametersHistory: OrderParametersHistory, howMany: int, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.howMany = howMany
+        self.orderParametersHistory = orderParametersHistory
 
     def update(self, state):
-        mE = np.array([m.mean() for m in np.split(state.latticeAverages['energy'][-self.howMany:], 4)])
-        mR = np.array([m.mean() for m in np.split(state.wiggleRateValues[-self.howMany:], 4)])
+        mE = np.array([m.mean() for m in np.split(self.orderParametersHistory.orderParameters['energy'][-self.howMany:], 4)])
+        mR = np.array([m.mean() for m in np.split(self.orderParametersHistory.stats['wiggleRate'][-self.howMany:], 4)])
         mR[np.where(mR == 0)] = np.random.normal(scale=0.001)
 
         de = np.diff(mE, 1)

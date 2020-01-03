@@ -132,7 +132,7 @@ def _getLatticeAverages(lattice):
     avg['t32'] = lattice['t32'].mean(axis=(0, 1, 2))
     avg['p'] = lattice['p'].mean()
     avg['energy'] = lattice['energy'].mean()
-    return avg[0]
+    return avg
 
 
 @jit(forceobj=True, nopython=False, cache=True)
@@ -155,6 +155,4 @@ def doLatticeStateUpdate(state: LatticeState):
                         float(state.parameters.tau),
                         state.wiggleRate)
     state.iterations += 1
-    state.latticeAverages = np.append(state.latticeAverages,
-                                      _getLatticeAverages(state.lattice.particles))
-    state.wiggleRateValues = np.append(state.wiggleRateValues, state.wiggleRate)
+    state.latticeAverages = _getLatticeAverages(state.lattice.particles)

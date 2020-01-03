@@ -184,7 +184,6 @@ class SimulationRunner(threading.Thread):
                     state.lattice = msg.lattice
                     state.latticeAverages = msg.latticeAverages
                     state.wiggleRate = msg.wiggleRate
-                    state.wiggleRateValues = msg.wiggleRateValues
                 if messageType == MessageType.ParallelTemperingSignUp:
                     # add this state to the waiting list for parallel tempering
                     temperatureIndex = self._temperatures.index(msg.parameters.temperature)
