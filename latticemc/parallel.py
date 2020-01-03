@@ -164,21 +164,23 @@ class SimulationProcess(mp.Process):
         # wait for decision in governing thread
         if not our.poll(30):
             logger.warning(f'SimulationProcess[{self.index}, {self.state.parameters}]: No parallel tempering data to exchange')
-        else:
-            parameters = our.recv()
-            if parameters != self.state.parameters:
-                # broadcast what we can
-                self._broadcastOrderParameters()
-                self._broadcastFluctuations()
-                self._broadcastState()
+        parameters = our.recv()
+        
+        logger.debug(f'SimulationProcess[{self.index}, {self.state.parameters}]: Received parameters for exchange: {parameters}')
+        
+        if parameters != self.state.parameters:
+            # broadcast what we can
+            self._broadcastOrderParameters()
+            self._broadcastFluctuations()
+            self._broadcastState()
 
-                # parameter change
-                with self.temperature.get_lock():
-                    self.state.parameters = parameters
-                    self.temperature.value = float(parameters.temperature)
+            # parameter change
+            with self.temperature.get_lock():
+                self.state.parameters = parameters
+                self.temperature.value = float(parameters.temperature)
 
-                # reset the number of results that can be safely broadcasted as coming from this configuration
-                self._relevantHistoryLength = 0
+            # reset the number of results that can be safely broadcasted as coming from this configuration
+            self._relevantHistoryLength = 0
 
 
 class SimulationRunner(threading.Thread):
