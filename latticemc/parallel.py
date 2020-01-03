@@ -263,8 +263,8 @@ class SimulationRunner(threading.Thread):
         # process waiting list for parallel tempering in random order
         import random
         ptParam: ParallelTemperingParameters = None
-        it = 0
-        while it < len(ptReady) and ptReady:
+        it = len(ptReady)
+        while it > 0 and ptReady:
             ptParam = random.choice(ptReady)
             adjTemp = self._adjacentTemperature(ptParam)
             if self._simulationRunningThisTemperature(float(adjTemp)) is None:
@@ -290,7 +290,7 @@ class SimulationRunner(threading.Thread):
                     ptReady.remove(adjPtParam)
                 except IndexError:
                     pass
-            it += 1
+            it -= 1
 
     @staticmethod
     def _parallelTemperingDecision(p1: ParallelTemperingParameters, p2: ParallelTemperingParameters) -> bool:
