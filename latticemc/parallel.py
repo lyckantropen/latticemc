@@ -45,8 +45,8 @@ class SimulationProcess(mp.Process):
                  cycles: int,
                  reportOrderParametersEvery: int = 1000,
                  reportStateEvery: int = 1000,
-                 fluctuationsHowOften: int = 50,
-                 fluctuationsWindow: int = 100,
+                 fluctuationsHowOften: int = 1000,
+                 fluctuationsWindow: int = 1000,
                  perStateUpdaters: List[Updater] = [],
                  parallelTemperingInterval: int = None
                  ):
