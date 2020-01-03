@@ -6,7 +6,7 @@ from latticemc.simulationNumba import (
     _doOrientationSweep
 )
 from latticemc.tensorTools import quaternionToOrientation
-from latticemc.definitions import particle
+from latticemc.definitions import particleDoF, particleProps, Lattice
 
 
 def _t20t22Matrix(ex, ey, ez):
@@ -79,12 +79,14 @@ def test__getEnergy():
 
 def test__doOrientationSweep():
     np.random.seed(42)
-    lattice = np.zeros([3, 3, 3], dtype=particle)
+    lattice = np.zeros([3, 3, 3], dtype=particleDoF)
     lattice['x'] = [1, 0, 0, 0]
     lattice['p'] = np.random.choice([-1, 1], 3 * 3 * 3).reshape(lattice.shape)
     lattice_after = lattice.copy()
     indexes = np.array(list(np.ndindex((3, 3, 3)))).reshape(3 * 3 * 3, 3)
 
-    _doOrientationSweep(lattice_after, indexes, 2.4, 0.3, 1, 0.1)
+    lat = Lattice(3,3,3)
+    lat.particles = lattice_after
+    _doOrientationSweep(lat, indexes, 2.4, 0.3, 1, 0.1)
     assert np.sum(lattice['x'] == lattice_after['x']) < lattice['x'].size
     assert np.sum(lattice['p'] == lattice_after['p']) < lattice['p'].size
