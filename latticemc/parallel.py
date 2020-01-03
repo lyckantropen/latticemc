@@ -212,11 +212,11 @@ class SimulationRunner(threading.Thread):
 
         self._starting = False
 
-        ptReady: Dict[int, Tuple[ParallelTemperingParameters, SimulationProcess]] = {}
+        ptReady: List[ParallelTemperingParameters] = []
         while self.alive():
             while not q.empty():
                 messageType, index, msg = q.get()
-                logger.debug(f'SimulationRunner: Received {messageType}, index={index}, msg={msg}')
+                logger.debug(f'SimulationRunner: Received {messageType}, index={index}')
 
                 if messageType == MessageType.OrderParameters:
                     p, op = msg
@@ -232,18 +232,8 @@ class SimulationRunner(threading.Thread):
                     state.latticeAverages = msg.latticeAverages
                     state.wiggleRate = msg.wiggleRate
                 if messageType == MessageType.ParallelTemperingSignUp:
-                    # find adjacent temperature
-                    temperatureIndex = self._temperatures.index(msg.parameters.temperature)
-                    adjacentTempIndex = temperatureIndex + 1
-                    try:
-                        # check if simulation exists
-                        adjSim = [sim for sim in self.simulations
-                                  if np.all(np.isclose(sim.temperature.value, float(self._temperatures[adjacentTempIndex]))) and
-                                  sim.running][0]
-                        ptReady[temperatureIndex] = (msg, adjSim)
-                    except IndexError:
-                        # bounce and unblock requesting process because it doesn't have a PT counterpart
-                        msg.pipe.send(msg.parameters)
+                    ptParameters = msg
+                    ptParameters.pipe.send(ptParameters.parameters)
                 if messageType == MessageType.Error:
                     parameters, exception = msg
                     logger.error(f'SimulationProcess[{index},{parameters}]: Failed with exception "{exception}"')
@@ -251,49 +241,64 @@ class SimulationRunner(threading.Thread):
                     parameters = msg
                     logger.info(f'SimulationProcess[{index},{parameters}]: Finished succesfully')
 
-            # process waiting list for parallel tempering in random order
-            if ptReady:
-                # unblock processes that don't have a PT counterpart
-                items = list(ptReady.items())
-                for t, (p, adjSim) in items:
-                    if not adjSim.running.value:
-                        p.pipe.send(p.parameters)
-                        ptReady.pop(t)
-
-                for _ in range(len(ptReady)):
-                    self._doParallelTempering(ptReady)
+            self._doParallelTempering(ptReady)
 
         [sim.join() for sim in self.simulations]
 
-    def _doParallelTempering(self, ptReady: Dict[int, Tuple[ParallelTemperingParameters, SimulationProcess]]):
-        # only consider adjacent temperatures
-        i = np.random.randint(len(self._temperatures) - 1)
-        j = i + 1
+    def _adjacentTemperature(self, pi: ParallelTemperingParameters):
+        tempIndex = self._temperatures.index(pi.parameters.temperature)
+        if tempIndex + 1 == len(self._temperatures):
+            return self._temperatures[tempIndex - 1]
+        else:
+            return self._temperatures[tempIndex + 1]
 
-        # check if adjacent temperatures exist in waiting list
-        (pi, _) = ptReady[i] if i in ptReady else (None, None)
-        (pj, _) = ptReady[j] if j in ptReady else (None, None)
-        if pi is not None and pj is not None:
-            self._doParallelTemperingDecision(pi, pj)
-            # remove the pair from the pool
-            ptReady.pop(i)
-            ptReady.pop(j)
+    def _simulationRunningThisTemperature(self, temperature: float):
+        simsForTemp = [sim for sim in self.simulations if np.isclose(sim.temperature.value, temperature) and sim.running.value]
+        if simsForTemp:
+            return simsForTemp[0]
+        else:
+            return None
 
-    def _doParallelTemperingDecision(self, p1: ParallelTemperingParameters, p2: ParallelTemperingParameters):
+    def _doParallelTempering(self, ptReady: List[ParallelTemperingParameters]):
+        # process waiting list for parallel tempering in random order
+        import random
+        ptParam: ParallelTemperingParameters = None
+        it = 0
+        while it < len(ptReady) and ptReady:
+            ptParam = random.choice(ptReady)
+            adjTemp = self._adjacentTemperature(ptParam)
+            if self._simulationRunningThisTemperature(float(adjTemp)) is None:
+                # unblock
+                ptParam.pipe.send(ptParam.parameters)
+                ptReady.remove(ptParam)
+                logger.debug(f'SimulationRunner: Freed up {ptParam} from PT waiting list')
+            else:
+                try:
+                    adjPtParam = [p for p in ptReady if p.parameters.temperature == adjTemp][0]
+                    if self._parallelTemperingDecision(ptParam, adjPtParam):
+                        # sending new parameters down the pipe will unblock waiting processes
+                        ptParam.pipe.send(adjPtParam.parameters)
+                        adjPtParam.pipe.send(ptParam.parameters)
+                        logger.debug(f'SimulationRunner: Exchanged {ptParam.parameters.temperature} and {adjPtParam.parameters.temperature}')
+                    else:
+                        # sending old parameters down the pipe will unblock waiting processes
+                        ptParam.pipe.send(ptParam.parameters)
+                        adjPtParam.pipe.send(adjPtParam.parameters)
+                        logger.debug(f'SimulationRunner: Did not exchange {ptParam.parameters.temperature} and {adjPtParam.parameters.temperature}')
+
+                    ptReady.remove(ptParam)
+                    ptReady.remove(adjPtParam)
+                except IndexError:
+                    pass
+            it += 1
+
+    @staticmethod
+    def _parallelTemperingDecision(p1: ParallelTemperingParameters, p2: ParallelTemperingParameters) -> bool:
         t1, e1, pipe1 = float(p1.parameters.temperature), p1.energy, p1.pipe
         t2, e2, pipe2 = float(p2.parameters.temperature), p2.energy, p2.pipe
         dB = 1 / t1 - 1 / t2
         dE = e1 - e2
-        if dB * dE > 0 or np.random.random() < np.exp(dB * dE):
-            # sending new parameters down the pipe will unblock waiting processes
-            pipe1.send(p2.parameters)
-            pipe2.send(p1.parameters)
-            return True
-        else:
-            # sending old parameters down the pipe will unblock waiting processes
-            pipe1.send(p1.parameters)
-            pipe2.send(p2.parameters)
-            return False
+        return dB * dE > 0 or np.random.random() < np.exp(dB * dE)
 
     def stop(self):
         [sim.terminate() for sim in self.simulations]
