@@ -97,8 +97,6 @@ class SimulationProcess(mp.Process):
 
         try:
             for it in range(self.cycles):
-                if np.random.random() < 0.05:
-                    raise Exception('test')
                 simulationNumba.doLatticeStateUpdate(self.state)
                 self._relevantHistoryLength += 1
                 for u in perStateUpdaters:
