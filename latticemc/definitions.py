@@ -2,25 +2,48 @@ import numpy as np
 from dataclasses import dataclass, field
 from decimal import Decimal
 
-# per-particle properties data type
-particle = np.dtype({
+# per-particle degrees of freedom
+particleDoF = np.dtype({
+    'names': [ 'x', 'p' ],
+    'formats': [ (np.float32, (4,)), np.int8 ]
+}, align=True)
+
+# declaration of the above for use in OpenCL
+particleDoF_cdecl = """
+typedef struct __attribute__ ((packed)) {
+    float4  x;
+    char p;
+} particleDoF;
+"""
+# per-particle properties (other than DoF)
+particleProps = np.dtype({
     'names': ['index',
-              'x',
               't20',
               't22',
               't32',
-              'p',
-              'energy'
+              'energy',
+              'p'
               ],
     'formats': [(np.int, (3,)),
-                (np.float32, (4,)),
                 (np.float32, (6,)),
                 (np.float32, (6,)),
                 (np.float32, (10,)),
                 np.float32,
                 np.float32
-                ]
+                ]    
 }, align=True)
+
+# declaration of the above for use in OpenCL
+particleProps_cdecl = """
+typedef struct __attribute__ ((packed)) {
+    ushort3 index;
+    float  t20[6];
+    float  t22[6];
+    float  t32[10];
+    float energy;
+    float p;
+} particleProps;
+"""
 
 # data type to store the order parameters
 gatheredOrderParameters = np.dtype([
@@ -37,19 +60,6 @@ simulationStats = np.dtype([
     ('wiggleRate', float),
 ])
 
-# declaration of the above for use in OpenCL
-particle_cdecl = """
-typedef struct __attribute__ ((packed)) {
-    ushort3 index;
-    float4  x;
-    float  t20[6];
-    float  t22[6];
-    float  t32[10];
-    float p;
-    float energy;
-} particle;
-"""
-
 
 @dataclass
 class Lattice:
@@ -60,10 +70,12 @@ class Lattice:
     Y: int
     Z: int
     particles: np.ndarray = field(default=None)
+    properties: np.ndarray = field(default=None)
 
     def __post_init__(self):
-        self.particles = np.zeros((self.X, self.Y, self.Z), dtype=particle)
-        self.particles['index'] = np.array(
+        self.particles = np.zeros((self.X, self.Y, self.Z), dtype=particleDoF)
+        self.properties = np.zeros((self.X, self.Y, self.Z), dtype=particleProps)
+        self.properties['index'] = np.array(
             list(np.ndindex((self.X, self.Y, self.Z)))).reshape(self.X, self.Y, self.Z, 3)
 
 
@@ -87,7 +99,7 @@ class LatticeState:
 
     iterations: int = 0
     wiggleRate: float = 1
-    latticeAverages: np.ndarray = field(default_factory=lambda: np.empty(0, dtype=particle))  # instantaneous order parameters
+    latticeAverages: np.ndarray = field(default_factory=lambda: np.empty(0, dtype=particleProps))  # instantaneous order parameters
 
 
 @dataclass
