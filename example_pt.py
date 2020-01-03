@@ -5,6 +5,8 @@ from latticemc.latticeTools import initializePartiallyOrdered
 from latticemc.randomQuaternion import randomQuaternion
 import numpy as np
 import time
+import logging
+import sys
 from decimal import Decimal
 
 temperatures = np.arange(0.4, 1.2, 0.02)
@@ -22,6 +24,14 @@ perStateUpdaters = [
     RandomWiggleRateAdjustor(scale=1.0, resetValue=1.0, howOften=1000, sinceWhen=1000)
 ]
 
+root = logging.getLogger()
+root.setLevel(logging.INFO)
+handler = logging.StreamHandler(sys.stdout)
+handler.setLevel(logging.INFO)
+formatter = logging.Formatter('%(name)s,%(levelname)s: %(message)s')
+handler.setFormatter(formatter)
+root.addHandler(handler)
+
 if __name__ == "__main__":
     runner = SimulationRunner(states,
                               orderParametersHistory,
@@ -35,6 +45,6 @@ if __name__ == "__main__":
     while runner.alive():
         time.sleep(5)
         for state in states:
-            print(f'{state.parameters}: energy={orderParametersHistory[state.parameters].orderParameters["energy"].mean()}')
+            root.info(f'{state.parameters}: energy={orderParametersHistory[state.parameters].orderParameters["energy"].mean()}')
 
     runner.join()

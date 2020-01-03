@@ -190,9 +190,6 @@ class SimulationRunner(threading.Thread):
         self.kwargs = kwargs
         self.simulations: List[SimulationProcess] = []
 
-        # set to False when all processes have started running
-        self._starting = True
-
         # for parallel tempering
         self._temperatures = [state.parameters.temperature for state in self.states]
 
@@ -204,8 +201,6 @@ class SimulationRunner(threading.Thread):
             sim = SimulationProcess(i, q, state, *self.args, **self.kwargs)
             sim.start()
             self.simulations.append(sim)
-
-        self._starting = False
 
         ptReady = {}
         while self.alive():
@@ -282,4 +277,4 @@ class SimulationRunner(threading.Thread):
         [sim.terminate() for sim in self.simulations]
 
     def alive(self):
-        return self._starting or [sim for sim in self.simulations if sim.is_alive() or sim.running]
+        return [sim for sim in self.simulations if sim.is_alive() or sim.running]
