@@ -2,7 +2,7 @@ import numpy as np
 from numba import njit
 
 
-@njit(cache=True)
+@njit(parallel=True)
 def fluctuation(values):
     """
     Calculate the fluctuation of one-dimensional array
