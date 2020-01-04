@@ -44,8 +44,8 @@ class SimulationProcess(mp.Process):
                  initialState: LatticeState,
                  cycles: int,
                  reportOrderParametersEvery: int = 1000,
+                 reportFluctuationsEvery: int = 1000,
                  reportStateEvery: int = 1000,
-                 fluctuationsHowOften: int = 1000,
                  fluctuationsWindow: int = 1000,
                  perStateUpdaters: List[Updater] = [],
                  parallelTemperingInterval: int = None
@@ -56,9 +56,9 @@ class SimulationProcess(mp.Process):
         self.state = initialState
         self.cycles = cycles
         self.reportOrderParametersEvery = reportOrderParametersEvery
+        self.reportFluctuationsEvery = reportFluctuationsEvery
         self.reportStateEvery = reportStateEvery
         self.perStateUpdaters = perStateUpdaters
-        self.fluctuationsHowOften = fluctuationsHowOften
         self.fluctuationsWindow = fluctuationsWindow
         self.parallelTemperingInterval = parallelTemperingInterval
 
@@ -78,7 +78,7 @@ class SimulationProcess(mp.Process):
         )
         fluctuationsBroadcaster = CallbackUpdater(
             callback=lambda _: self._broadcastFluctuations(),
-            howOften=self.fluctuationsHowOften,
+            howOften=self.reportFluctuationsEvery,
             sinceWhen=self.fluctuationsWindow
         )
         stateBroadcaster = CallbackUpdater(
@@ -88,7 +88,7 @@ class SimulationProcess(mp.Process):
         )
 
         orderParametersCalculator = OrderParametersCalculator(self.localHistory, howOften=1, sinceWhen=0)
-        fluctuationsCalculator = FluctuationsCalculator(self.localHistory, window=self.fluctuationsWindow, howOften=self.fluctuationsHowOften, sinceWhen=self.fluctuationsWindow)
+        fluctuationsCalculator = FluctuationsCalculator(self.localHistory, window=self.fluctuationsWindow, howOften=1, sinceWhen=self.fluctuationsWindow)
         perStateUpdaters = [
             orderParametersCalculator,
             fluctuationsCalculator,
