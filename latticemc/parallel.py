@@ -140,7 +140,7 @@ class SimulationProcess(mp.Process):
         """
         self.queue.put((MessageType.Fluctuations, self.index,
                         (self.state.parameters,
-                         self.localHistory.fluctuations[-min(self._relevantHistoryLength, self.fluctuationsHowOften):])))
+                         self.localHistory.fluctuations[-min(self._relevantHistoryLength, self.reportFluctuationsEvery):])))
 
     def _broadcastState(self):
         """
