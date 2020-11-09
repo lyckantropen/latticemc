@@ -1,13 +1,7 @@
-from . import disableNumba  # noqa: F401
 import numpy as np
 from latticemc.tensorTools import (
-    T20AndT22In6Coordinates,
-    T32In10Coordinates,
-    ten6toMat,
-    dot6,
-    dot10,
-    quaternionToOrientation
-)
+    T20AndT22In6Coordinates, T32In10Coordinates, dot6, dot10,
+    quaternionToOrientation, ten6toMat)
 
 
 def _t20t22Matrix(ex, ey, ez):

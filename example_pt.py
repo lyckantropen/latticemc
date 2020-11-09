@@ -1,13 +1,16 @@
-from latticemc.definitions import OrderParametersHistory, DefiningParameters, LatticeState, Lattice
-from latticemc.updaters import RandomWiggleRateAdjustor
-from latticemc.parallel import SimulationRunner
-from latticemc.latticeTools import initializePartiallyOrdered
-from latticemc.randomQuaternion import randomQuaternion
-import numpy as np
-import time
 import logging
 import sys
+import time
 from decimal import Decimal
+
+import numpy as np
+
+from latticemc.definitions import (DefiningParameters, Lattice, LatticeState,
+                                   OrderParametersHistory)
+from latticemc.latticeTools import initializePartiallyOrdered
+from latticemc.parallel import SimulationRunner
+from latticemc.randomQuaternion import randomQuaternion
+from latticemc.updaters import RandomWiggleRateAdjustor
 
 temperatures = np.arange(0.4, 1.2, 0.02)
 states = [LatticeState(parameters=DefiningParameters(temperature=round(Decimal(t), 2), lam=round(Decimal(0.3), 2), tau=round(Decimal(1), 1)),

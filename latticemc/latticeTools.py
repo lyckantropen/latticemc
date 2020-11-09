@@ -1,8 +1,10 @@
+from typing import Optional
+
 import numpy as np
 from numba import njit
-from typing import Optional
-from .randomQuaternion import randomQuaternion, wiggleQuaternion
+
 from .definitions import Lattice
+from .randomQuaternion import randomQuaternion, wiggleQuaternion
 
 
 @njit(cache=True)
