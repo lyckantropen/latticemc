@@ -1,4 +1,7 @@
-numpy
-numba
-scipy
-joblib
+numpy==1.19.2
+numba==0.51.2
+scipy==1.5.2
+joblib==0.17.0
+pytest==6.1.2
+pytest-dotenv==0.5.2
+pytest-pythonpath==0.7.3
