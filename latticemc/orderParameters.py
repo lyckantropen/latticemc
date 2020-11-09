@@ -1,7 +1,8 @@
 import numpy as np
 from numba import jit, njit
-from .tensorTools import ten6toMat, dot10, SQRT16
-from .definitions import gatheredOrderParameters, LatticeState
+
+from .definitions import LatticeState, gatheredOrderParameters
+from .tensorTools import SQRT16, dot10, ten6toMat
 
 
 @njit(cache=True)

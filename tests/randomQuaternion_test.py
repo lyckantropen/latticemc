@@ -1,9 +1,6 @@
-from . import disableNumba  # noqa: F401
 import numpy as np
-from latticemc.randomQuaternion import (
-    randomQuaternion,
-    wiggleQuaternion
-)
+
+from latticemc.randomQuaternion import randomQuaternion, wiggleQuaternion
 
 
 def test_randomQuaternion_norm():

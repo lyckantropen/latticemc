@@ -9,10 +9,11 @@ def failsafeSaveSimulation(e: Exception, state: LatticeState, orderParametersHis
         print(f'Attempting to save the state of the simulation: {state.parameters}')
 
         from datetime import datetime
-        from joblib import dump
         from os import getcwd
-        from uuid import uuid1
         from pathlib import Path
+        from uuid import uuid1
+
+        from joblib import dump
 
         destPath = Path(getcwd()) / Path(str(uuid1()))
 

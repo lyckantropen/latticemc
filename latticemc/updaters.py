@@ -1,8 +1,11 @@
 from abc import abstractmethod
+
 import numpy as np
-from .statistical import fluctuation
+
+from .definitions import (LatticeState, OrderParametersHistory,
+                          gatheredOrderParameters, simulationStats)
 from .orderParameters import calculateOrderParameters
-from .definitions import gatheredOrderParameters, LatticeState, OrderParametersHistory, simulationStats
+from .statistical import fluctuation
 
 
 class Updater:

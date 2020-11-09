@@ -1,6 +1,7 @@
-import numpy as np
 from dataclasses import dataclass, field
 from decimal import Decimal
+
+import numpy as np
 
 # per-particle degrees of freedom
 particleDoF = np.dtype({

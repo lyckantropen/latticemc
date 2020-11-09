@@ -4,10 +4,12 @@ Monte Carlo lattice simulation accelerated using Numba
 """
 import numpy as np
 from numba import jit, njit
-from .randomQuaternion import wiggleQuaternion
+
 from .definitions import LatticeState, particleProps
-from .tensorTools import dot6, dot10, T20AndT22In6Coordinates, T32In10Coordinates, quaternionToOrientation, SQRT2
 from .orderParameters import biaxialOrdering
+from .randomQuaternion import wiggleQuaternion
+from .tensorTools import (SQRT2, T20AndT22In6Coordinates, T32In10Coordinates,
+                          dot6, dot10, quaternionToOrientation)
 
 
 @njit(cache=True)

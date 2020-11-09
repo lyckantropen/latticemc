@@ -1,12 +1,9 @@
-from . import disableNumba  # noqa: F401
 import numpy as np
-from latticemc.simulationNumba import (
-    _getNeighbors,
-    _getEnergy,
-    _doOrientationSweep
-)
+
+from latticemc.definitions import Lattice, particleDoF
+from latticemc.simulationNumba import (_doOrientationSweep, _getEnergy,
+                                       _getNeighbors)
 from latticemc.tensorTools import quaternionToOrientation
-from latticemc.definitions import particleDoF, Lattice
 
 
 def _t20t22Matrix(ex, ey, ez):

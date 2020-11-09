@@ -1,13 +1,6 @@
-from . import disableNumba  # noqa: F401
 import numpy as np
-from latticemc.orderParameters import (
-    _d322,
-    _q0q2w
-)
-from latticemc.tensorTools import (
-    T20AndT22In6Coordinates,
-    T32In10Coordinates
-)
+from latticemc.orderParameters import _d322, _q0q2w
+from latticemc.tensorTools import T20AndT22In6Coordinates, T32In10Coordinates
 
 
 def test__q0q2w():

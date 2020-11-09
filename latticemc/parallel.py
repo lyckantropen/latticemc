@@ -1,15 +1,20 @@
-from .definitions import LatticeState, OrderParametersHistory, DefiningParameters
-from .updaters import CallbackUpdater, FluctuationsCalculator, OrderParametersCalculator, Updater
-from .failsafe import failsafeSaveSimulation
-from . import simulationNumba
+import logging
 import multiprocessing as mp
 import threading
-import numpy as np
-from enum import Enum
 from collections import namedtuple
-from typing import Dict, List
 from ctypes import c_double
-import logging
+from enum import Enum
+from typing import Dict, List
+
+import numpy as np
+
+from . import simulationNumba
+from .definitions import (DefiningParameters, LatticeState,
+                          OrderParametersHistory)
+from .failsafe import failsafeSaveSimulation
+from .updaters import (CallbackUpdater, FluctuationsCalculator,
+                       OrderParametersCalculator, Updater)
+
 logger = logging.getLogger(__name__)
 
 
