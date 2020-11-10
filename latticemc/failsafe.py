@@ -1,7 +1,7 @@
-from .definitions import LatticeState, OrderParametersHistory
+from .definitions import OrderParametersHistory, lattice_state
 
 
-def failsafe_save_simulation(e: Exception, state: LatticeState, order_parameters_history: OrderParametersHistory):
+def failsafe_save_simulation(e: Exception, state: lattice_state, order_parameters_history: OrderParametersHistory):
     try:
         import traceback
         tb = traceback.format_exc()
@@ -32,8 +32,8 @@ def failsafe_save_simulation(e: Exception, state: LatticeState, order_parameters
         desc_file = dest_path / 'desc.txt'
         desc_file.write_text(desc_str)
 
-        state_file = dest_path / f'latticeState.dump'
-        order_parameters_history_file = dest_path / f'order_parameters_history.dump'
+        state_file = dest_path / 'lattice_state.dump'
+        order_parameters_history_file = dest_path / 'order_parameters_history.dump'
         dump(state, state_file.as_posix(), compress=('xz', 9))
         dump(order_parameters_history, order_parameters_history_file.as_posix(), compress=('xz', 9))
 
