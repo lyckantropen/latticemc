@@ -3,10 +3,10 @@ from numba import njit
 
 
 @njit(cache=True)
-def randomQuaternion(radius):
+def random_quaternion(radius):
     """
     Generate a random point on a 4D-sphere
-    of radius equal to 'wiggleRate'
+    of radius equal to 'wiggle_rate'
     """
     result = np.zeros(4, dtype=np.float32)
 
@@ -37,12 +37,12 @@ def randomQuaternion(radius):
 
 
 @njit(cache=True)
-def wiggleQuaternion(x, wiggleRate):
+def wiggle_quaternion(x, wiggle_rate):
     """
     Return a normalised 4-vector that is offset from the previous
-    one by a random 4-vector of radius 'wiggleRate'
+    one by a random 4-vector of radius 'wiggle_rate'
     """
-    dx = randomQuaternion(wiggleRate)
+    dx = random_quaternion(wiggle_rate)
     x_ = x.copy()
     x_ += dx
     x_ /= np.linalg.norm(x_)

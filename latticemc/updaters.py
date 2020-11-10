@@ -3,8 +3,8 @@ from abc import abstractmethod
 import numpy as np
 
 from .definitions import (LatticeState, OrderParametersHistory,
-                          gatheredOrderParameters, simulationStats)
-from .orderParameters import calculateOrderParameters
+                          gathered_order_parameters, simulation_stats)
+from .order_parameters import calculate_order_parameters
 from .statistical import fluctuation
 
 
@@ -15,19 +15,19 @@ class Updater:
     run every said number of iterations.
     """
 
-    def __init__(self, howOften, sinceWhen, printEvery=None):
-        self.howOften = howOften
-        self.sinceWhen = sinceWhen
-        self.lastValue = None
-        self.printEvery = printEvery
+    def __init__(self, how_often, since_when, print_every=None):
+        self.how_often = how_often
+        self.since_when = since_when
+        self.last_value = None
+        self.print_every = print_every
 
     def perform(self, state: LatticeState):
-        if state.iterations >= self.sinceWhen and state.iterations % self.howOften == 0:
-            self.lastValue = self.update(state)
-            if self.printEvery is not None and state.iterations % self.printEvery == 0:
-                print(f'[{state.iterations},{state.parameters}]:\t {self.formatValue(self.lastValue)}')
+        if state.iterations >= self.since_when and state.iterations % self.how_often == 0:
+            self.last_value = self.update(state)
+            if self.print_every is not None and state.iterations % self.print_every == 0:
+                print(f'[{state.iterations},{state.parameters}]:\t {self.format_value(self.last_value)}')
 
-    def formatValue(self, value):
+    def format_value(self, value):
         return str(value)
 
     @abstractmethod
@@ -36,74 +36,74 @@ class Updater:
 
 
 class OrderParametersCalculator(Updater):
-    def __init__(self, orderParametersHistory: OrderParametersHistory, *args, **kwargs):
+    def __init__(self, order_parameters_history: OrderParametersHistory, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.orderParametersHistory = orderParametersHistory
+        self.order_parameters_history = order_parameters_history
 
     def update(self, state: LatticeState):
-        op = calculateOrderParameters(state)
-        self.orderParametersHistory.orderParameters = np.append(self.orderParametersHistory.orderParameters, op)
-        self.orderParametersHistory.stats = np.append(self.orderParametersHistory.stats, np.array([(state.wiggleRate,)], dtype=simulationStats))
+        op = calculate_order_parameters(state)
+        self.order_parameters_history.order_parameters = np.append(self.order_parameters_history.order_parameters, op)
+        self.order_parameters_history.stats = np.append(self.order_parameters_history.stats, np.array([(state.wiggle_rate,)], dtype=simulation_stats))
         return op
 
-    def formatValue(self, value):
-        s = ','.join([f'{name}={value[name][0]:.5f}' for name in gatheredOrderParameters.fields.keys()])
+    def format_value(self, value):
+        s = ','.join([f'{name}={value[name][0]:.5f}' for name in gathered_order_parameters.fields.keys()])
         return 'averg: ' + s
 
 
 class FluctuationsCalculator(Updater):
-    def __init__(self, orderParametersHistory: OrderParametersHistory, *args, window=100, **kwargs):
+    def __init__(self, order_parameters_history: OrderParametersHistory, *args, window=100, **kwargs):
         super().__init__(*args, **kwargs)
-        self.orderParametersHistory = orderParametersHistory
+        self.order_parameters_history = order_parameters_history
 
     def update(self, state):
-        fluctuations = np.zeros(1, dtype=gatheredOrderParameters)
-        for name in gatheredOrderParameters.fields.keys():
-            fluct = state.lattice.particles.size * fluctuation(self.orderParametersHistory.orderParameters[name][-100:])
+        fluctuations = np.zeros(1, dtype=gathered_order_parameters)
+        for name in gathered_order_parameters.fields.keys():
+            fluct = state.lattice.particles.size * fluctuation(self.order_parameters_history.order_parameters[name][-100:])
             fluctuations[name] = fluct
 
-        self.orderParametersHistory.fluctuations = np.append(self.orderParametersHistory.fluctuations, fluctuations)
+        self.order_parameters_history.fluctuations = np.append(self.order_parameters_history.fluctuations, fluctuations)
         return fluctuations
 
-    def formatValue(self, value):
-        s = ','.join([f'{name}={value[name][0]:.5f}' for name in gatheredOrderParameters.fields.keys()])
+    def format_value(self, value):
+        s = ','.join([f'{name}={value[name][0]:.5f}' for name in gathered_order_parameters.fields.keys()])
         return 'fluct: ' + s
 
 
 class RandomWiggleRateAdjustor(Updater):
-    def __init__(self, scale, *args, resetValue=None, **kwargs):
+    def __init__(self, scale, *args, reset_value=None, **kwargs):
         super().__init__(*args, **kwargs)
         self.scale = scale
-        self.resetValue = resetValue
+        self.reset_value = reset_value
 
     def update(self, state):
-        if self.resetValue is not None:
-            state.wiggleRate = np.random.normal(self.resetValue, scale=self.scale)
+        if self.reset_value is not None:
+            state.wiggle_rate = np.random.normal(self.reset_value, scale=self.scale)
         else:
-            state.wiggleRate = np.random.normal(state.wiggleRate, scale=self.scale)
-        return state.wiggleRate
+            state.wiggle_rate = np.random.normal(state.wiggle_rate, scale=self.scale)
+        return state.wiggle_rate
 
 
 class DerivativeWiggleRateAdjustor(Updater):
-    def __init__(self, orderParametersHistory: OrderParametersHistory, howMany: int, *args, **kwargs):
+    def __init__(self, order_parameters_history: OrderParametersHistory, how_many: int, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.howMany = howMany
-        self.orderParametersHistory = orderParametersHistory
+        self.how_many = how_many
+        self.order_parameters_history = order_parameters_history
 
     def update(self, state):
-        mE = np.array([m.mean() for m in np.split(self.orderParametersHistory.orderParameters['energy'][-self.howMany:], 4)])
-        mR = np.array([m.mean() for m in np.split(self.orderParametersHistory.stats['wiggleRate'][-self.howMany:], 4)])
-        mR[np.where(mR == 0)] = np.random.normal(scale=0.001)
+        m_e = np.array([m.mean() for m in np.split(self.order_parameters_history.order_parameters['energy'][-self.how_many:], 4)])
+        m_r = np.array([m.mean() for m in np.split(self.order_parameters_history.stats['wiggle_rate'][-self.how_many:], 4)])
+        m_r[np.where(m_r == 0)] = np.random.normal(scale=0.001)
 
-        de = np.diff(mE, 1)
-        dr = np.diff(mR, 1)
+        de = np.diff(m_e, 1)
+        dr = np.diff(m_r, 1)
         efirst = de / dr
         etrend = (efirst[-1] - efirst[-2])
         if etrend < 0:
-            state.wiggleRate *= 1.1
+            state.wiggle_rate *= 1.1
         else:
-            state.wiggleRate *= 0.9
-        return state.wiggleRate
+            state.wiggle_rate *= 0.9
+        return state.wiggle_rate
 
 
 class CallbackUpdater(Updater):

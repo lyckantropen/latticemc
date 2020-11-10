@@ -9,7 +9,7 @@ SQRT16 = np.sqrt(1 / 6)
 
 
 @njit(cache=True)
-def T20AndT22In6Coordinates(ex, ey, ez):
+def t20_and_t22_in_6_coordinates(ex, ey, ez):
     """
     Calculate the T20 and T22 tensors using only 6
     independent components.
@@ -50,7 +50,7 @@ def T20AndT22In6Coordinates(ex, ey, ez):
 
 
 @njit(cache=True)
-def T32In10Coordinates(ex, ey, ez):
+def t32_in_10_coordinates(ex, ey, ez):
     t32 = np.zeros(10, np.float32)
 
     # 000
@@ -95,7 +95,7 @@ def T32In10Coordinates(ex, ey, ez):
 
 
 @njit(cache=True)
-def ten6toMat(a):
+def ten6_to_mat(a):
     """
     Convert a symmetric tensor represented using 6
     independent components to a 3x3 matrix
@@ -148,7 +148,7 @@ def dot10(a, b):
 
 
 @njit(cache=True)
-def quaternionToOrientation(x):
+def quaternion_to_orientation(x):
     """
     Convert arbitrary normalized quaternion to
     a proper rotation in 3D space.
@@ -167,3 +167,25 @@ def quaternionToOrientation(x):
     ey = np.array([2 * (x12 - x03), 2 * (-x11 - x33 + 0.5), 2 * (x01 + x23)], dtype=np.float32)
     ez = np.array([2 * (x02 + x13), 2 * (-x01 + x23), 2 * (-x22 - x11 + 0.5)], dtype=np.float32)
     return ex, ey, ez
+
+
+@njit(cache=True)
+def t20_t22_matrix(ex, ey, ez):
+    xx = np.outer(ex, ex)
+    yy = np.outer(ey, ey)
+    zz = np.outer(ez, ez)
+    t20 = np.sqrt(3 / 2) * (zz - 1 / 3 * np.eye(3))
+    t22 = np.sqrt(1 / 2) * (xx - yy)
+    return t20, t22
+
+
+@njit(cache=True)
+def t32_matrix(ex, ey, ez):
+    return np.sqrt(1 / 6) * (
+        np.outer(np.outer(ex, ey), ez) +
+        np.outer(np.outer(ez, ex), ey) +
+        np.outer(np.outer(ey, ez), ex) +
+        np.outer(np.outer(ex, ez), ey) +
+        np.outer(np.outer(ey, ex), ez) +
+        np.outer(np.outer(ez, ey), ex)
+    ).reshape(3, 3, 3)

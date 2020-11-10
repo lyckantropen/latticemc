@@ -4,29 +4,29 @@ import numpy as np
 from numba import njit
 
 from .definitions import Lattice
-from .randomQuaternion import randomQuaternion, wiggleQuaternion
+from .random_quaternion import random_quaternion, wiggle_quaternion
 
 
 @njit(cache=True)
-def initializeRandomQuaternions(xlattice):
+def initialize_random_quaternions(xlattice):
     """
     Given a lattice where the size of the last dimension must
     be equal to 4, populate it with random normalized quaternions.
     """
     for i in np.ndindex(xlattice.shape[:-1]):
-        xlattice[i] = randomQuaternion(1)
+        xlattice[i] = random_quaternion(1)
 
 
-def initializeRandom(lattice: Lattice):
+def initialize_random(lattice: Lattice):
     """
     Initialize the lattice from nonbiased uniform
     distributions for orientation and parity.
     """
-    initializeRandomQuaternions(lattice.particles['x'])
+    initialize_random_quaternions(lattice.particles['x'])
     lattice.particles['p'] = np.random.choice([-1, 1], lattice.particles.size).reshape(lattice.particles.shape)
 
 
-def initializeOrdered(lattice: Lattice, x: Optional[np.ndarray] = None, p: Optional[int] = None):
+def initialize_ordered(lattice: Lattice, x: Optional[np.ndarray] = None, p: Optional[int] = None):
     """
     Initialize the lattice to the same value. Optionally,
     starting values for the orientation and parity
@@ -38,7 +38,7 @@ def initializeOrdered(lattice: Lattice, x: Optional[np.ndarray] = None, p: Optio
     lattice.particles['p'] = p
 
 
-def initializePartiallyOrdered(lattice: Lattice, x: Optional[np.ndarray] = None, p: Optional[int] = None):
+def initialize_partially_ordered(lattice: Lattice, x: Optional[np.ndarray] = None, p: Optional[int] = None):
     """
     Initialize the lattice with partial ordering. Given
     initial orientation, perturb the orientations using random
@@ -53,4 +53,4 @@ def initializePartiallyOrdered(lattice: Lattice, x: Optional[np.ndarray] = None,
     lattice.particles['p'] = np.random.choice([-p, p], lattice.particles.size, p=[0.25, 0.75]).reshape(lattice.particles.shape)
     lattice.particles['x'] = x
     for i in np.ndindex(lattice.particles.shape):
-        lattice.particles['x'][i] = wiggleQuaternion(lattice.particles['x'][i], 0.02)
+        lattice.particles['x'][i] = wiggle_quaternion(lattice.particles['x'][i], 0.02)
