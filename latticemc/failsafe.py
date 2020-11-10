@@ -1,7 +1,7 @@
-from .definitions import OrderParametersHistory, lattice_state
+from .definitions import LatticeState, OrderParametersHistory
 
 
-def failsafe_save_simulation(e: Exception, state: lattice_state, order_parameters_history: OrderParametersHistory):
+def failsafe_save_simulation(e: Exception, state: LatticeState, order_parameters_history: OrderParametersHistory):
     try:
         import traceback
         tb = traceback.format_exc()
