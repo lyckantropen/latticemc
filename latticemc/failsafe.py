@@ -1,7 +1,7 @@
 from .definitions import LatticeState, OrderParametersHistory
 
 
-def failsafeSaveSimulation(e: Exception, state: LatticeState, orderParametersHistory: OrderParametersHistory):
+def failsafe_save_simulation(e: Exception, state: LatticeState, order_parameters_history: OrderParametersHistory):
     try:
         import traceback
         tb = traceback.format_exc()
@@ -15,28 +15,28 @@ def failsafeSaveSimulation(e: Exception, state: LatticeState, orderParametersHis
 
         from joblib import dump
 
-        destPath = Path(getcwd()) / Path(str(uuid1()))
+        dest_path = Path(getcwd()) / Path(str(uuid1()))
 
-        print(f'Will attempt to save simulation state to {destPath}')
-        destPath.mkdir()
+        print(f'Will attempt to save simulation state to {dest_path}')
+        dest_path.mkdir()
 
         ts = '{:%Y-%m-%d %H:%M:%S}'.format(datetime.now())
 
-        descStr = (
+        desc_str = (
             f'time={ts}\niterations={state.iterations}\n'
             f'parameters={state.parameters}\n'
             f'latticeSize={state.lattice.particles.shape}\n'
-            f'wiggleRate={state.wiggleRate}\n\n'
+            f'wiggle_rate={state.wiggle_rate}\n\n'
             f'{tb}\n'
         )
-        descFile = destPath / 'desc.txt'
-        descFile.write_text(descStr)
+        desc_file = dest_path / 'desc.txt'
+        desc_file.write_text(desc_str)
 
-        stateFile = destPath / f'latticeState.dump'
-        orderParametersHistoryFile = destPath / f'orderParametersHistory.dump'
-        dump(state, stateFile.as_posix(), compress=('xz', 9))
-        dump(orderParametersHistory, orderParametersHistoryFile.as_posix(), compress=('xz', 9))
+        state_file = dest_path / f'latticeState.dump'
+        order_parameters_history_file = dest_path / f'order_parameters_history.dump'
+        dump(state, state_file.as_posix(), compress=('xz', 9))
+        dump(order_parameters_history, order_parameters_history_file.as_posix(), compress=('xz', 9))
 
-        print(f'Saved lattice and parameters to {destPath}. Use joblib.load to restore them.')
+        print(f'Saved lattice and parameters to {dest_path}. Use joblib.load to restore them.')
     except Exception as e2:
         print(f'Exception: {e2} during the attempt to save the state of the simulation.')

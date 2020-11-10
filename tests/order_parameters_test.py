@@ -1,6 +1,6 @@
 import numpy as np
-from latticemc.orderParameters import _d322, _q0q2w
-from latticemc.tensorTools import T20AndT22In6Coordinates, T32In10Coordinates
+from latticemc.order_parameters import _d322, _q0q2w
+from latticemc.tensor_tools import t20_and_t22_in_6_coordinates, t32_in_10_coordinates
 
 
 def test__q0q2w():
@@ -10,9 +10,9 @@ def test__q0q2w():
         np.array([0, 0, 1])
     )
 
-    t20x, t22x = T20AndT22In6Coordinates(a, b, c)
-    t20y, t22y = T20AndT22In6Coordinates(c, a, b)
-    t20z, t22z = T20AndT22In6Coordinates(b, c, a)
+    t20x, t22x = t20_and_t22_in_6_coordinates(a, b, c)
+    t20y, t22y = t20_and_t22_in_6_coordinates(c, a, b)
+    t20z, t22z = t20_and_t22_in_6_coordinates(b, c, a)
 
     q0x, q2x, wx = _q0q2w(t20x, t22x, 0)
     q0y, q2y, wy = _q0q2w(t20y, t22y, np.sqrt(3 / 2))
@@ -37,6 +37,6 @@ def test__d322():
         np.array([0, 1, 0]),
         np.array([0, 0, 1])
     )
-    t32 = T32In10Coordinates(a, b, c)
+    t32 = t32_in_10_coordinates(a, b, c)
     d322 = _d322(t32)
     assert np.isclose(d322, 1)

@@ -4,61 +4,54 @@ from decimal import Decimal
 import numpy as np
 
 # per-particle degrees of freedom
-particleDoF = np.dtype({
-    'names': ['x', 'p'],
-    'formats': [(np.float32, (4,)), np.int8]
-}, align=True)
+particle_dof = np.dtype([
+    ('x', np.float32, 4),
+    ('p', np.int8)
+], align=True)
 
 # declaration of the above for use in OpenCL
-particleDoF_cdecl = """
+particle_dof_cdecl = """
 typedef struct __attribute__ ((packed)) {
     float4  x;
     char p;
-} particleDoF;
+} particle_dof;
 """
+
 # per-particle properties (other than DoF)
-particleProps = np.dtype({
-    'names': ['index',
-              't20',
-              't22',
-              't32',
-              'energy',
-              'p'
-              ],
-    'formats': [(np.int, (3,)),
-                (np.float32, (6,)),
-                (np.float32, (6,)),
-                (np.float32, (10,)),
-                np.float32,
-                np.float32
-                ]
-}, align=True)
+particle_props = np.dtype([
+    ('t32', np.float32, 10),
+    ('t20', np.float32, 6),
+    ('t22', np.float32, 6),
+    ('index', np.uint16, 3),
+    ('energy', np.float32),
+    ('p', np.float32)
+], align=True)
 
 # declaration of the above for use in OpenCL
-particleProps_cdecl = """
+particle_props_cdecl = """
 typedef struct __attribute__ ((packed)) {
-    ushort3 index;
+    float  t32[10];
     float  t20[6];
     float  t22[6];
-    float  t32[10];
+    ushort3 index;
     float energy;
     float p;
-} particleProps;
+} particle_props;
 """
 
 # data type to store the order parameters
-gatheredOrderParameters = np.dtype([
-    ('energy', float),
-    ('q0', float),
-    ('q2', float),
-    ('w', float),
-    ('p', float),
-    ('d322', float)
+gathered_order_parameters = np.dtype([
+    ('energy', np.float32),
+    ('q0', np.float32),
+    ('q2', np.float32),
+    ('w', np.float32),
+    ('p', np.float32),
+    ('d322', np.float32)
 ])
 
 # data type to store statistics
-simulationStats = np.dtype([
-    ('wiggleRate', float),
+simulation_stats = np.dtype([
+    ('wiggle_rate', np.float32),
 ])
 
 
@@ -74,14 +67,17 @@ class Lattice:
     properties: np.ndarray = field(default=None)
 
     def __post_init__(self):
-        self.particles = np.zeros((self.X, self.Y, self.Z), dtype=particleDoF)
-        self.properties = np.zeros((self.X, self.Y, self.Z), dtype=particleProps)
+        self.particles = np.zeros((self.X, self.Y, self.Z), dtype=particle_dof)
+        self.properties = np.zeros((self.X, self.Y, self.Z), dtype=particle_props)
         self.properties['index'] = np.array(
             list(np.ndindex((self.X, self.Y, self.Z)))).reshape(self.X, self.Y, self.Z, 3)
 
 
 @dataclass
 class DefiningParameters:
+    """
+    Uniquely defines the parameters of the model.
+    """
     temperature: Decimal
     tau: Decimal
     lam: Decimal
@@ -93,18 +89,21 @@ class DefiningParameters:
 @dataclass
 class LatticeState:
     """
-    Represents a given state of a molecular lattice at a given point in the simulation
+    Represents the state of a molecular lattice at a given point in the simulation.
     """
     parameters: DefiningParameters
     lattice: Lattice
 
     iterations: int = 0
-    wiggleRate: float = 1
-    latticeAverages: np.ndarray = field(default_factory=lambda: np.empty(0, dtype=particleProps))  # instantaneous order parameters
+    wiggle_rate: float = 1
+    lattice_averages: np.ndarray = field(default_factory=lambda: np.empty(0, dtype=particle_props))  # instantaneous order parameters
 
 
 @dataclass
 class OrderParametersHistory:
-    orderParameters: np.ndarray = field(default_factory=lambda: np.empty(0, dtype=gatheredOrderParameters))
-    fluctuations: np.ndarray = field(default_factory=lambda: np.empty(0, dtype=gatheredOrderParameters))
-    stats: np.ndarray = field(default_factory=lambda: np.empty(0, dtype=simulationStats))
+    """
+    Values of order parameters, fluctuation of order parameters and simulation statistics as a function of time.
+    """
+    order_parameters: np.ndarray = field(default_factory=lambda: np.empty(0, dtype=gathered_order_parameters))
+    fluctuations: np.ndarray = field(default_factory=lambda: np.empty(0, dtype=gathered_order_parameters))
+    stats: np.ndarray = field(default_factory=lambda: np.empty(0, dtype=simulation_stats))

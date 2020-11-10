@@ -1,12 +1,12 @@
 import numpy as np
 from numba import jit, njit
 
-from .definitions import LatticeState, gatheredOrderParameters
-from .tensorTools import SQRT16, dot10, ten6toMat
+from .definitions import LatticeState, gathered_order_parameters
+from .tensor_tools import SQRT16, dot10, ten6_to_mat
 
 
 @njit(cache=True)
-def biaxialOrdering(lam):
+def biaxial_ordering(lam):
     if lam < (SQRT16 - 1e-3):
         return 1
     if lam > (SQRT16 + 1e-3):
@@ -17,15 +17,15 @@ def biaxialOrdering(lam):
 
 @njit(cache=True)
 def _q0q2w(mt20, mt22, lam):
-    mQ = mt20 + lam * np.sqrt(2) * mt22
-    mQ = ten6toMat(mQ)
-    ev = np.linalg.eigvalsh(mQ)
+    m_q = mt20 + lam * np.sqrt(2) * mt22
+    m_q = ten6_to_mat(m_q)
+    ev = np.linalg.eigvalsh(m_q)
     i = np.argsort(ev**2)[::-1]
     wn, wm, wl = ev[i]
 
     nq0 = 1
     nq2 = 1
-    o = biaxialOrdering(lam)
+    o = biaxial_ordering(lam)
     if o == 1 or o == 0:
         nq0 = 1 / (np.sqrt(6) / 3)
         nq2 = 1 / (np.sqrt(2))
@@ -45,12 +45,12 @@ def _d322(mt32):
 
 
 @jit(nopython=False, forceobj=True, parallel=True)
-def calculateOrderParameters(state: LatticeState):
+def calculate_order_parameters(state: LatticeState):
     """
     Calculate instantaneous order parameters after
     the LatticeState has been updated.
     """
-    avg = state.latticeAverages[0]
+    avg = state.lattice_averages[0]
     q0, q2, w = _q0q2w(avg['t20'], avg['t22'], float(state.parameters.lam))
 
     energy = avg['energy']
@@ -59,4 +59,4 @@ def calculateOrderParameters(state: LatticeState):
 
     return np.array([
         (energy, q0, q2, w, p, d322)
-    ], dtype=gatheredOrderParameters)
+    ], dtype=gathered_order_parameters)

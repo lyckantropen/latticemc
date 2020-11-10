@@ -8,10 +8,10 @@ from typing import Dict, List
 
 import numpy as np
 
-from . import simulationNumba
+from . import simulation_numba
 from .definitions import (DefiningParameters, LatticeState,
                           OrderParametersHistory)
-from .failsafe import failsafeSaveSimulation
+from .failsafe import failsafe_save_simulation
 from .updaters import (CallbackUpdater, FluctuationsCalculator,
                        OrderParametersCalculator, Updater)
 
@@ -46,115 +46,115 @@ class SimulationProcess(mp.Process):
     def __init__(self,
                  index: int,
                  queue: mp.Queue,
-                 initialState: LatticeState,
+                 initial_state: LatticeState,
                  cycles: int,
-                 reportOrderParametersEvery: int = 1000,
-                 reportFluctuationsEvery: int = 1000,
-                 reportStateEvery: int = 1000,
-                 fluctuationsWindow: int = 1000,
-                 perStateUpdaters: List[Updater] = [],
-                 parallelTemperingInterval: int = None
+                 report_order_parameters_every: int = 1000,
+                 report_fluctuations_every: int = 1000,
+                 report_state_every: int = 1000,
+                 fluctuations_window: int = 1000,
+                 per_state_updaters: List[Updater] = [],
+                 parallel_tempering_interval: int = None
                  ):
         super().__init__()
         self.index = index
         self.queue = queue
-        self.state = initialState
+        self.state = initial_state
         self.cycles = cycles
-        self.reportOrderParametersEvery = reportOrderParametersEvery
-        self.reportFluctuationsEvery = reportFluctuationsEvery
-        self.reportStateEvery = reportStateEvery
-        self.perStateUpdaters = perStateUpdaters
-        self.fluctuationsWindow = fluctuationsWindow
-        self.parallelTemperingInterval = parallelTemperingInterval
+        self.report_order_parameters_every = report_order_parameters_every
+        self.report_fluctuations_every = report_fluctuations_every
+        self.report_state_every = report_state_every
+        self.per_state_updaters = per_state_updaters
+        self.fluctuations_window = fluctuations_window
+        self.parallel_tempering_interval = parallel_tempering_interval
 
         self.running = mp.Value('i', 1)
         self.temperature = mp.Value(c_double, float(self.state.parameters.temperature))
 
         # how many data points truly belong to the present configuration
         # is important when parallel tempering is enabled
-        self._relevantHistoryLength = 0
-        self.localHistory = OrderParametersHistory()
+        self._relevant_history_length = 0
+        self.local_history = OrderParametersHistory()
 
     def run(self):
-        orderParametersBroadcaster = CallbackUpdater(
-            callback=lambda _: self._broadcastOrderParameters(),
-            howOften=self.reportOrderParametersEvery,
-            sinceWhen=self.reportOrderParametersEvery
+        order_parameters_broadcaster = CallbackUpdater(
+            callback=lambda _: self._broadcast_order_parameters(),
+            how_often=self.report_order_parameters_every,
+            since_when=self.report_order_parameters_every
         )
-        fluctuationsBroadcaster = CallbackUpdater(
-            callback=lambda _: self._broadcastFluctuations(),
-            howOften=self.reportFluctuationsEvery,
-            sinceWhen=self.fluctuationsWindow
+        fluctuations_broadcaster = CallbackUpdater(
+            callback=lambda _: self._broadcast_fluctuations(),
+            how_often=self.report_fluctuations_every,
+            since_when=self.fluctuations_window
         )
-        stateBroadcaster = CallbackUpdater(
-            callback=lambda _: self._broadcastState(),
-            howOften=self.reportStateEvery,
-            sinceWhen=self.reportStateEvery
+        state_broadcaster = CallbackUpdater(
+            callback=lambda _: self._broadcast_state(),
+            how_often=self.report_state_every,
+            since_when=self.report_state_every
         )
 
-        orderParametersCalculator = OrderParametersCalculator(self.localHistory, howOften=1, sinceWhen=0)
-        fluctuationsCalculator = FluctuationsCalculator(self.localHistory, window=self.fluctuationsWindow, howOften=1, sinceWhen=self.fluctuationsWindow)
-        perStateUpdaters = [
-            orderParametersCalculator,
-            fluctuationsCalculator,
+        order_parameters_calculator = OrderParametersCalculator(self.local_history, how_often=1, since_when=0)
+        fluctuations_calculator = FluctuationsCalculator(self.local_history, window=self.fluctuations_window, how_often=1, since_when=self.fluctuations_window)
+        per_state_updaters = [
+            order_parameters_calculator,
+            fluctuations_calculator,
 
-            *self.perStateUpdaters,
+            *self.per_state_updaters,
 
-            orderParametersBroadcaster,
-            fluctuationsBroadcaster,
-            stateBroadcaster
+            order_parameters_broadcaster,
+            fluctuations_broadcaster,
+            state_broadcaster
         ]
 
-        if self.parallelTemperingInterval is not None:
-            parallelTemperingUpdater = CallbackUpdater(
-                callback=lambda _: self._parallelTempering(),
-                howOften=self.parallelTemperingInterval,
-                sinceWhen=self.parallelTemperingInterval
+        if self.parallel_tempering_interval is not None:
+            parallel_tempering_updater = CallbackUpdater(
+                callback=lambda _: self._parallel_tempering(),
+                how_often=self.parallel_tempering_interval,
+                since_when=self.parallel_tempering_interval
             )
-            perStateUpdaters.append(parallelTemperingUpdater)
+            per_state_updaters.append(parallel_tempering_updater)
 
         try:
             for it in range(self.cycles):
-                simulationNumba.doLatticeStateUpdate(self.state)
-                self._relevantHistoryLength += 1
-                for u in perStateUpdaters:
+                simulation_numba.do_lattice_state_update(self.state)
+                self._relevant_history_length += 1
+                for u in per_state_updaters:
                     u.perform(self.state)
 
         except Exception as e:
             self.queue.put((MessageType.Error, self.index, (self.state.parameters, e)))
-            failsafeSaveSimulation(e, self.state, self.localHistory)
+            failsafe_save_simulation(e, self.state, self.local_history)
             self.running.value = 0
 
         self.queue.put((MessageType.State, self.index, self.state))
         self.queue.put((MessageType.Finished, self.index, self.state.parameters))
         self.running.value = 0
 
-    def _broadcastOrderParameters(self):
+    def _broadcast_order_parameters(self):
         """
-        Publish at most self._relevantHistoryLength order
+        Publish at most self._relevant_history_length order
         parameters from history to the governing thread.
         """
         self.queue.put((MessageType.OrderParameters, self.index,
                         (self.state.parameters,
-                         self.localHistory.orderParameters[-min(self._relevantHistoryLength, self.reportOrderParametersEvery):])))
+                         self.local_history.order_parameters[-min(self._relevant_history_length, self.report_order_parameters_every):])))
 
-    def _broadcastFluctuations(self):
+    def _broadcast_fluctuations(self):
         """
-        Publish at most self._relevantHistoryLength fluctuation
+        Publish at most self._relevant_history_length fluctuation
         values from history to the governing thread.
         """
         self.queue.put((MessageType.Fluctuations, self.index,
                         (self.state.parameters,
-                         self.localHistory.fluctuations[-min(self._relevantHistoryLength, self.reportFluctuationsEvery):])))
+                         self.local_history.fluctuations[-min(self._relevant_history_length, self.report_fluctuations_every):])))
 
-    def _broadcastState(self):
+    def _broadcast_state(self):
         """
         Publish the current Lattice State to the
         governing thread.
         """
         self.queue.put((MessageType.State, self.index, self.state))
 
-    def _parallelTempering(self):
+    def _parallel_tempering(self):
         """
         Post a message to the queue that this configuration is ready
         for parallel tempering. Open a pipe and wait for a new set
@@ -162,9 +162,10 @@ class SimulationProcess(mp.Process):
 
         Upon change, publish the relevant order parameters history.
         """
-        energy = self.localHistory.orderParameters['energy'][-1] * self.state.lattice.particles.size
+        energy = self.local_history.order_parameters['energy'][-1] * self.state.lattice.particles.size
         our, theirs = mp.Pipe()
-        self.queue.put((MessageType.ParallelTemperingSignUp, self.index, ParallelTemperingParameters(parameters=self.state.parameters, energy=energy, pipe=theirs)))
+        self.queue.put((MessageType.ParallelTemperingSignUp, self.index, ParallelTemperingParameters(
+            parameters=self.state.parameters, energy=energy, pipe=theirs)))
 
         # wait for decision in governing thread
         if not our.poll(30):
@@ -175,9 +176,9 @@ class SimulationProcess(mp.Process):
 
         if parameters != self.state.parameters:
             # broadcast what we can
-            self._broadcastOrderParameters()
-            self._broadcastFluctuations()
-            self._broadcastState()
+            self._broadcast_order_parameters()
+            self._broadcast_fluctuations()
+            self._broadcast_state()
 
             # parameter change
             with self.temperature.get_lock():
@@ -185,19 +186,19 @@ class SimulationProcess(mp.Process):
                 self.temperature.value = float(parameters.temperature)
 
             # reset the number of results that can be safely broadcasted as coming from this configuration
-            self._relevantHistoryLength = 0
+            self._relevant_history_length = 0
 
 
 class SimulationRunner(threading.Thread):
     def __init__(self,
-                 initialStates: List[LatticeState],
-                 orderParametersHistory: Dict[DefiningParameters, OrderParametersHistory],
+                 initial_states: List[LatticeState],
+                 order_parameters_history: Dict[DefiningParameters, OrderParametersHistory],
                  *args,
                  **kwargs):
         threading.Thread.__init__(self)
 
-        self.states = initialStates
-        self.orderParametersHistory = orderParametersHistory
+        self.states = initial_states
+        self.order_parameters_history = order_parameters_history
         self.args = args
         self.kwargs = kwargs
         self.simulations: List[SimulationProcess] = []
@@ -219,107 +220,107 @@ class SimulationRunner(threading.Thread):
 
         self._starting = False
 
-        ptReady: List[ParallelTemperingParameters] = []
+        pt_ready: List[ParallelTemperingParameters] = []
         while self.alive():
             while not q.empty():
-                messageType, index, msg = q.get()
-                logger.debug(f'SimulationRunner: Received {messageType}, index={index}')
+                message_type, index, msg = q.get()
+                logger.debug(f'SimulationRunner: Received {message_type}, index={index}')
 
-                if messageType == MessageType.OrderParameters:
+                if message_type == MessageType.OrderParameters:
                     p, op = msg
-                    self.orderParametersHistory[p].orderParameters = np.append(self.orderParametersHistory[p].orderParameters, op)
-                if messageType == MessageType.Fluctuations:
+                    self.order_parameters_history[p].order_parameters = np.append(self.order_parameters_history[p].order_parameters, op)
+                if message_type == MessageType.Fluctuations:
                     p, fl = msg
-                    self.orderParametersHistory[p].fluctuations = np.append(self.orderParametersHistory[p].fluctuations, fl)
-                if messageType == MessageType.State:
+                    self.order_parameters_history[p].fluctuations = np.append(self.order_parameters_history[p].fluctuations, fl)
+                if message_type == MessageType.State:
                     # update the state
                     state = [state for state in self.states if state.parameters == msg.parameters][0]
                     state.iterations = msg.iterations
                     state.lattice = msg.lattice
-                    state.latticeAverages = msg.latticeAverages
-                    state.wiggleRate = msg.wiggleRate
-                if messageType == MessageType.ParallelTemperingSignUp:
-                    ptParameters = msg
-                    ptReady.append(ptParameters)
-                if messageType == MessageType.Error:
+                    state.lattice_averages = msg.lattice_averages
+                    state.wiggle_rate = msg.wiggle_rate
+                if message_type == MessageType.ParallelTemperingSignUp:
+                    pt_parameters = msg
+                    pt_ready.append(pt_parameters)
+                if message_type == MessageType.Error:
                     parameters, exception = msg
                     logger.error(f'SimulationProcess[{index},{parameters}]: Failed with exception "{exception}"')
-                if messageType == MessageType.Finished:
+                if message_type == MessageType.Finished:
                     parameters = msg
                     logger.info(f'SimulationProcess[{index},{parameters}]: Finished succesfully')
 
-            self._doParallelTempering(ptReady)
+            self._do_parallel_tempering(pt_ready)
 
         [sim.join() for sim in self.simulations]
 
-    def _adjacentTemperature(self, pi: ParallelTemperingParameters):
+    def _adjacent_temperature(self, pi: ParallelTemperingParameters):
         """
         Find the value of adjacent temperature within the
         values that are present in the simulations.
         """
-        tempIndex = self._temperatures.index(pi.parameters.temperature)
-        if tempIndex + 1 == len(self._temperatures):
-            return self._temperatures[tempIndex - 1]
+        temp_index = self._temperatures.index(pi.parameters.temperature)
+        if temp_index + 1 == len(self._temperatures):
+            return self._temperatures[temp_index - 1]
         else:
-            return self._temperatures[tempIndex + 1]
+            return self._temperatures[temp_index + 1]
 
-    def _simulationRunningThisTemperature(self, temperature: float):
+    def _simulation_running_this_temperature(self, temperature: float):
         """
         Return the running simulation that currently has
         'temperature' set as the temperature it is running at.
         If no such simulation can be found, return None.
         """
-        simsForTemp = [sim for sim in self.simulations if np.isclose(sim.temperature.value, temperature) and sim.running.value]
-        if simsForTemp:
-            return simsForTemp[0]
+        sims_for_temp = [sim for sim in self.simulations if np.isclose(sim.temperature.value, temperature) and sim.running.value]
+        if sims_for_temp:
+            return sims_for_temp[0]
         else:
             return None
 
-    def _doParallelTempering(self, ptReady: List[ParallelTemperingParameters]):
+    def _do_parallel_tempering(self, pt_ready: List[ParallelTemperingParameters]):
         """
         Manage random selection of temperatures and exchanging
         parameters between configurations using parameters and pipes provided
-        in 'ptReady'.
+        in 'pt_ready'.
         """
         # process waiting list for parallel tempering in random order
         import random
-        ptParam = None
-        it = len(ptReady)
-        while it > 0 and ptReady:
-            ptParam = random.choice(ptReady)
-            adjTemp = self._adjacentTemperature(ptParam)
-            if self._simulationRunningThisTemperature(float(adjTemp)) is None:
+        pt_param = None
+        it = len(pt_ready)
+        while it > 0 and pt_ready:
+            pt_param = random.choice(pt_ready)
+            adj_temp = self._adjacent_temperature(pt_param)
+            if self._simulation_running_this_temperature(float(adj_temp)) is None:
                 # unblock
-                ptParam.pipe.send(ptParam.parameters)
-                ptReady.remove(ptParam)
-                logger.debug(f'SimulationRunner: Freed up {ptParam} from PT waiting list')
+                pt_param.pipe.send(pt_param.parameters)
+                pt_ready.remove(pt_param)
+                logger.debug(f'SimulationRunner: Freed up {pt_param} from PT waiting list')
             else:
                 try:
-                    adjPtParam = [p for p in ptReady if p.parameters.temperature == adjTemp][0]
-                    if self._parallelTemperingDecision(ptParam, adjPtParam):
+                    adj_pt_param = [p for p in pt_ready if p.parameters.temperature == adj_temp][0]
+                    if self._parallel_tempering_decision(pt_param, adj_pt_param):
                         # sending new parameters down the pipe will unblock waiting processes
-                        ptParam.pipe.send(adjPtParam.parameters)
-                        adjPtParam.pipe.send(ptParam.parameters)
-                        logger.debug(f'SimulationRunner: Exchanged {ptParam.parameters.temperature} and {adjPtParam.parameters.temperature}')
+                        pt_param.pipe.send(adj_pt_param.parameters)
+                        adj_pt_param.pipe.send(pt_param.parameters)
+                        logger.debug(f'SimulationRunner: Exchanged {pt_param.parameters.temperature} and {adj_pt_param.parameters.temperature}')
                     else:
                         # sending old parameters down the pipe will unblock waiting processes
-                        ptParam.pipe.send(ptParam.parameters)
-                        adjPtParam.pipe.send(adjPtParam.parameters)
-                        logger.debug(f'SimulationRunner: Did not exchange {ptParam.parameters.temperature} and {adjPtParam.parameters.temperature}')
+                        pt_param.pipe.send(pt_param.parameters)
+                        adj_pt_param.pipe.send(adj_pt_param.parameters)
+                        logger.debug(f'SimulationRunner: Did not exchange {pt_param.parameters.temperature} and {adj_pt_param.parameters.temperature}')
 
-                    ptReady.remove(ptParam)
-                    ptReady.remove(adjPtParam)
+                    pt_ready.remove(pt_param)
+                    pt_ready.remove(adj_pt_param)
                 except IndexError:
                     pass
             it -= 1
 
     @staticmethod
-    def _parallelTemperingDecision(p1: ParallelTemperingParameters, p2: ParallelTemperingParameters) -> bool:
+    def _parallel_tempering_decision(p1: ParallelTemperingParameters, p2: ParallelTemperingParameters) -> bool:
         t1, e1, _ = float(p1.parameters.temperature), p1.energy, p1.pipe
         t2, e2, _ = float(p2.parameters.temperature), p2.energy, p2.pipe
-        dB = 1 / t1 - 1 / t2
-        dE = e1 - e2
-        return dB * dE > 0 or np.random.random() < np.exp(dB * dE)
+        d_b = 1 / t1 - 1 / t2
+        d_e = e1 - e2
+        return d_b * d_e > 0 or np.random.random() < np.exp(d_b * d_e)
 
     def stop(self):
         [sim.terminate() for sim in self.simulations]
