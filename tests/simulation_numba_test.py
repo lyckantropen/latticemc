@@ -3,7 +3,8 @@ import numpy as np
 from latticemc.definitions import Lattice, particle_dof
 from latticemc.simulation_numba import (_do_orientation_sweep, _get_energy,
                                         _get_neighbors)
-from latticemc.tensor_tools import quaternion_to_orientation, t20_t22_matrix, t32_matrix
+from latticemc.tensor_tools import (quaternion_to_orientation, t20_t22_matrix,
+                                    t32_matrix)
 
 
 def test_get_neighbors_3x3():
