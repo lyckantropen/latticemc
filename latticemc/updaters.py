@@ -10,9 +10,9 @@ from .statistical import fluctuation
 
 class Updater:
     """
-    A base class for executing code during the execution
-    of the simulation. The user can schedule this to be
-    run every said number of iterations.
+    Base class for executing code during execution of the simulation.
+    
+    The user can schedule this to be run every defined number of iterations.
     """
 
     def __init__(self, how_often, since_when, print_every=None):

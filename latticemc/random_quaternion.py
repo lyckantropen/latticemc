@@ -5,10 +5,7 @@ from nptyping import NDArray
 
 @nb.njit(nb.float32[:](nb.float32), cache=True)
 def random_quaternion(radius: np.float32) -> NDArray[(4,), np.float32]:
-    """
-    Generate a random point on a 4D-sphere
-    of radius equal to 'wiggle_rate'
-    """
+    """Generate a random point on a 4D-sphere of radius equal to 'wiggle_rate'."""
     result = np.zeros(4, dtype=np.float32)
 
     r1 = 0
@@ -39,10 +36,7 @@ def random_quaternion(radius: np.float32) -> NDArray[(4,), np.float32]:
 
 @nb.njit(nb.float32[:](nb.float32[:], nb.float32), cache=True)
 def wiggle_quaternion(x: NDArray[(4,), np.float32], wiggle_rate: np.float32) -> NDArray[(4,), np.float32]:
-    """
-    Return a normalised 4-vector that is offset from the previous
-    one by a random 4-vector of radius 'wiggle_rate'
-    """
+    """Return a normalised 4-vector that is offset from the previous one by a random 4-vector of radius 'wiggle_rate'."""
     dx = random_quaternion(wiggle_rate)
     x_ = x.copy()
     x_ += dx

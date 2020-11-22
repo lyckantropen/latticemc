@@ -59,9 +59,8 @@ simulation_stats = np.dtype([
 
 @dataclass
 class Lattice:
-    """
-    Represents the molecular lattice
-    """
+    """Represents the molecular lattice."""
+
     X: int
     Y: int
     Z: int
@@ -77,9 +76,8 @@ class Lattice:
 
 @dataclass
 class DefiningParameters:
-    """
-    Uniquely defines the parameters of the model.
-    """
+    """Uniquely defines the parameters of the model."""
+
     temperature: Decimal
     tau: Decimal
     lam: Decimal
@@ -90,9 +88,8 @@ class DefiningParameters:
 
 @dataclass
 class LatticeState:
-    """
-    Represents the state of a molecular lattice at a given point in the simulation.
-    """
+    """Represents the state of a molecular lattice at a given point in the simulation."""
+
     parameters: DefiningParameters
     lattice: Lattice
 
@@ -103,9 +100,8 @@ class LatticeState:
 
 @dataclass
 class OrderParametersHistory:
-    """
-    Values of order parameters, fluctuation of order parameters and simulation statistics as a function of time.
-    """
+    """Values of order parameters, fluctuation of order parameters and simulation statistics as a function of time."""
+
     order_parameters: NDArray[(Any,), Any] = field(default_factory=lambda: np.empty(0, dtype=gathered_order_parameters))
     fluctuations: NDArray[(Any,), Any] = field(default_factory=lambda: np.empty(0, dtype=gathered_order_parameters))
     stats: NDArray[(Any,), Any] = field(default_factory=lambda: np.empty(0, dtype=simulation_stats))

@@ -10,28 +10,22 @@ from .random_quaternion import random_quaternion, wiggle_quaternion
 
 @njit(cache=True)
 def initialize_random_quaternions(xlattice):
-    """
-    Given a lattice where the size of the last dimension must
-    be equal to 4, populate it with random normalized quaternions.
-    """
+    """Given a lattice where the size of the last dimension must be equal to 4, populate it with random normalized quaternions."""
     for i in np.ndindex(xlattice.shape[:-1]):
         xlattice[i] = random_quaternion(1)
 
 
 def initialize_random(lattice: Lattice):
-    """
-    Initialize the lattice from nonbiased uniform
-    distributions for orientation and parity.
-    """
+    """Initialize the lattice from nonbiased uniform distributions for orientation and parity."""
     initialize_random_quaternions(lattice.particles['x'])
     lattice.particles['p'] = np.random.choice([-1, 1], lattice.particles.size).reshape(lattice.particles.shape)
 
 
 def initialize_ordered(lattice: Lattice, x: Optional[NDArray[(4,), np.float32]] = None, p: Optional[int] = None):
     """
-    Initialize the lattice to the same value. Optionally,
-    starting values for the orientation and parity
-    can be specified.
+    Initialize the lattice to the same value.
+
+    Optionally, starting values for the orientation and parity can be specified.
     """
     x = x if x is not None else [1, 0, 0, 0]
     p = p if p is not None else 1
@@ -41,13 +35,12 @@ def initialize_ordered(lattice: Lattice, x: Optional[NDArray[(4,), np.float32]] 
 
 def initialize_partially_ordered(lattice: Lattice, x: Optional[NDArray[(4,), np.float32]] = None, p: Optional[int] = None):
     """
-    Initialize the lattice with partial ordering. Given
-    initial orientation, perturb the orientations using random
-    4-vectors of radius 0.02. Given the initial parity, initialize
-    25% of particles with random parity.
+    Initialize the lattice with partial ordering.
 
-    Optionally, starting values for the orientation and parity
-    can be specified.
+    Given initial orientation, perturb the orientations using random
+    4-vectors of radius 0.02. Given the initial parity, initialize
+    25% of particles with random parity. Optionally, starting values
+    for the orientation and parity can be specified.
     """
     x = x if x is not None else [1, 0, 0, 0]
     p = p if p is not None else 1

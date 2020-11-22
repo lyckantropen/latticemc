@@ -1,7 +1,4 @@
-"""
-Monte Carlo lattice simulation accelerated using Numba
-(much, much faster than plain Python)
-"""
+"""Monte Carlo lattice simulation accelerated using Numba (much, much faster than plain Python)."""
 from typing import Any, Tuple
 
 import numba as nb
@@ -20,8 +17,18 @@ def _get_properties_from_orientation(x: NDArray[4, np.float32],
                                      parity: np.int8
                                      ) -> Tuple[NDArray[3, np.float32], NDArray[3, np.float32], NDArray[3, np.float32], NDArray[10, np.float32]]:
     """
-    Calculate per-particle properties from the orientation
-    quaternion 'x' and parity 'p'. Returns ex, ey, ez, t32.
+    Calculate per-particle properties from the orientation quaternion 'x' and parity 'p'.
+
+    Returns
+    -------
+    ex: NDArray[(3,), np.float32]
+        x vector of particle orientation
+    ey: NDArray[(3,), np.float32]
+        y vector of particle orientation
+    ez: NDArray[(3,), np.float32]
+        z vector of particle orientation
+    t32: NDArray[(10,), np.float32]
+        the T32 tensor at the particle
     """
     ex, ey, ez = quaternion_to_orientation(x)
     t32 = t32_in_10_coordinates(ex, ey, ez)
@@ -32,6 +39,8 @@ def _get_properties_from_orientation(x: NDArray[4, np.float32],
 @nb.njit(cache=True)
 def _get_neighbors(center: NDArray[3, np.int32], lattice: NDArray[(Any, Any, Any), Any]):
     """
+    Get nearest neighbors of a particle site on the lattice.
+
     For a given 3-dimensional 'center' index and a 3d array
     'lattice', return the values of 'lattice' at the nearest
     neighbor sites, obeying periodic boundary conditions.
@@ -56,10 +65,7 @@ def _get_neighbors(center: NDArray[3, np.int32], lattice: NDArray[(Any, Any, Any
           nb.float32(nb.float32[:], nb.int64, nb.float32[:, :], nb.int64[:], nb.float32, nb.float32)],
          cache=True)
 def _get_energy(x, p, nx, npi, lam, tau):
-    """
-    Calculate the per-particle interaction energy
-    according to the Hamiltonian postulated in PRE79.
-    """
+    """Calculate the per-particle interaction energy according to the Hamiltonian postulated in PRE79."""
     ex, ey, ez, t32 = _get_properties_from_orientation(x, p)
     t20, t22 = t20_and_t22_in_6_coordinates(ex, ey, ez)
     q = t20 + lam * SQRT2 * t22
@@ -75,10 +81,7 @@ def _get_energy(x, p, nx, npi, lam, tau):
 
 @nb.njit(nb.types.boolean(nb.float32, nb.float32), cache=True)
 def _metropolis(d_e: np.float32, temperature: np.float32) -> bool:
-    """
-    decide the microstate evolution according to the
-    Metropolis algorithm at given temperature.
-    """
+    """Accept or reject the microstate evolution according to the Metropolis algorithm at given temperature."""
     if d_e < 0:
         return True
     else:
@@ -96,10 +99,12 @@ def _do_orientation_sweep(lattice: Lattice,
                           wiggle_rate: np.float32
                           ) -> None:
     """
-    Execute the Metropolis microstate evolution of 'lattice'
-    of particles specified by 'indexes' at given temperature, according
-    to the PRE79 parameters 'lam' (lamba) and 'tau'. The orientation is
-    updated using a random walk with radius 'wiggle_rate'.
+    Execute a single Metropolis microstate evolution of a lattice.
+
+    Given a lattice `lattice` of particles specified by 'indexes'
+    at given temperature, according to the PRE79 parameters 'lam'
+    (lamba) and 'tau'. The orientation is updated using a random
+    walk with radius 'wiggle_rate'.
     """
     for _i in indexes:
         particle = lattice.particles[tuple(_i)]
@@ -139,10 +144,7 @@ def _do_orientation_sweep(lattice: Lattice,
 
 @nb.jit(forceobj=True, nopython=False, cache=True)
 def _get_lattice_averages(lattice: Lattice) -> NDArray[(1,), Any]:
-    """
-    Calculate state average of per-particle properties
-    as specified in the 'particle' data type.
-    """
+    """Calculate state average of per-particle properties as specified in the 'particle' data type."""
     avg = np.zeros(1, dtype=particle_props)
     avg['t20'] = lattice.properties['t20'].mean(axis=(0, 1, 2))
     avg['t22'] = lattice.properties['t22'].mean(axis=(0, 1, 2))
@@ -156,6 +158,8 @@ def _get_lattice_averages(lattice: Lattice) -> NDArray[(1,), Any]:
 @nb.jit(forceobj=True, nopython=False, cache=True)
 def do_lattice_state_update(state: LatticeState) -> None:
     """
+    Perform one update of the lattice state.
+
     Perform one update of the lattice state, updating
     particles at random (some particles can be updated
     many times, others ommited). Then, update the

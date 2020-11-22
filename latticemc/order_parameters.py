@@ -53,10 +53,7 @@ def _d322(mt32: NDArray[(10,), np.float32]) -> np.float32:
 
 @nb.jit(nopython=False, forceobj=True, parallel=True)
 def calculate_order_parameters(state: LatticeState) -> NDArray[(Any,), Any]:
-    """
-    Calculate instantaneous order parameters after
-    the LatticeState has been updated.
-    """
+    """Calculate instantaneous order parameters after the `LatticeState` has been updated."""
     avg = state.lattice_averages[0]
     q0, q2, w = _q0q2w(avg['t20'], avg['t22'], float(state.parameters.lam))
 
