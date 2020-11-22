@@ -1,7 +1,7 @@
 import numba as nb
 import numpy as np
-
 from nptyping import NDArray
+
 
 @nb.njit(nb.float32[:](nb.float32), cache=True)
 def random_quaternion(radius: np.float32) -> NDArray[(4,), np.float32]:
