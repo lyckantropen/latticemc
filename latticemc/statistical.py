@@ -1,9 +1,12 @@
+from typing import Any
+
+import numba as nb
 import numpy as np
-from numba import njit
+from nptyping import NDArray
 
 
-@njit(cache=True)
-def fluctuation(values):
+@nb.njit(nb.float32(nb.float32[:]), cache=True)
+def fluctuation(values: NDArray[(Any,), np.float32]) -> np.float32:
     """
     Calculate the fluctuation of one-dimensional array
     """

@@ -7,7 +7,7 @@ from latticemc.tensor_tools import (dot6, dot10, quaternion_to_orientation,
 
 
 def test_t20_and_t22_in6_coordinates():
-    ex, ey, ez = np.array([1, 0, 0]), np.array([0, 1, 0]), np.array([0, 0, 1])
+    ex, ey, ez = np.array([1, 0, 0], dtype=np.float32), np.array([0, 1, 0], dtype=np.float32), np.array([0, 0, 1], dtype=np.float32)
     t20_6, t22_6 = t20_and_t22_in_6_coordinates(ex, ey, ez)
 
     xx = np.outer(ex, ex)
@@ -22,14 +22,14 @@ def test_t20_and_t22_in6_coordinates():
 
 def test_t32_in10_coordinates():
     ex, ey, ez = (
-        np.array([1, 0, 0]),
-        np.array([0, 1, 0]),
-        np.array([0, 0, 1])
+        np.array([1, 0, 0], dtype=np.float32),
+        np.array([0, 1, 0], dtype=np.float32),
+        np.array([0, 0, 1], dtype=np.float32)
     )
     tx, ty, tz = (
-        np.array([0.75106853, 0.5160275, 0.41183946]),
-        np.array([0.65460104, -0.6632714, -0.36272395]),
-        np.array([0.08598578, 0.5420211, -0.8359544])
+        np.array([0.75106853, 0.5160275, 0.41183946], dtype=np.float32),
+        np.array([0.65460104, -0.6632714, -0.36272395], dtype=np.float32),
+        np.array([0.08598578, 0.5420211, -0.8359544], dtype=np.float32)
     )
     t32_10 = t32_in_10_coordinates(ex, ey, ez)
     t32i_10 = t32_in_10_coordinates(tx, ty, tz)
@@ -42,14 +42,14 @@ def test_t32_in10_coordinates():
 
 def test_dot6():
     ex, ey, ez = (
-        np.array([1, 0, 0]),
-        np.array([0, 1, 0]),
-        np.array([0, 0, 1])
+        np.array([1, 0, 0], dtype=np.float32),
+        np.array([0, 1, 0], dtype=np.float32),
+        np.array([0, 0, 1], dtype=np.float32)
     )
     tx, ty, tz = (
-        np.array([0.75106853, 0.5160275, 0.41183946]),
-        np.array([0.65460104, -0.6632714, -0.36272395]),
-        np.array([0.08598578, 0.5420211, -0.8359544])
+        np.array([0.75106853, 0.5160275, 0.41183946], dtype=np.float32),
+        np.array([0.65460104, -0.6632714, -0.36272395], dtype=np.float32),
+        np.array([0.08598578, 0.5420211, -0.8359544], dtype=np.float32)
     )
     t20_6, t22_6 = t20_and_t22_in_6_coordinates(ex, ey, ez)
     t20i_6, t22i_6 = t20_and_t22_in_6_coordinates(tx, ty, tz)

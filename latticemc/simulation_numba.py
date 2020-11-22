@@ -2,18 +2,23 @@
 Monte Carlo lattice simulation accelerated using Numba
 (much, much faster than plain Python)
 """
-import numpy as np
-from numba import jit, njit
+from typing import Any, Tuple
 
-from .definitions import LatticeState, particle_props
+import numba as nb
+import numpy as np
+from nptyping import NDArray
+
+from .definitions import Lattice, LatticeState, particle_props
 from .order_parameters import biaxial_ordering
 from .random_quaternion import wiggle_quaternion
 from .tensor_tools import (SQRT2, dot6, dot10, quaternion_to_orientation,
                            t20_and_t22_in_6_coordinates, t32_in_10_coordinates)
 
 
-@njit(cache=True)
-def _get_properties_from_orientation(x, parity):
+@nb.njit([nb.types.UniTuple(nb.float32[:], 4)(nb.float32[:], nb.int8)], cache=True)
+def _get_properties_from_orientation(x: NDArray[4, np.float32],
+                                     parity: np.int8
+                                     ) -> Tuple[NDArray[3, np.float32], NDArray[3, np.float32], NDArray[3, np.float32], NDArray[10, np.float32]]:
     """
     Calculate per-particle properties from the orientation
     quaternion 'x' and parity 'p'. Returns ex, ey, ez, t32.
@@ -24,8 +29,8 @@ def _get_properties_from_orientation(x, parity):
     return ex, ey, ez, t32
 
 
-@njit(cache=True)
-def _get_neighbors(center, lattice):
+@nb.njit(cache=True)
+def _get_neighbors(center: NDArray[3, np.int32], lattice: NDArray[(Any, Any, Any), Any]):
     """
     For a given 3-dimensional 'center' index and a 3d array
     'lattice', return the values of 'lattice' at the nearest
@@ -47,7 +52,9 @@ def _get_neighbors(center, lattice):
     return n
 
 
-@njit(cache=True)
+@nb.njit([nb.float32(nb.float32[:], nb.int8, nb.float32[:, :], nb.int8[:], nb.float32, nb.float32),
+          nb.float32(nb.float32[:], nb.int64, nb.float32[:, :], nb.int64[:], nb.float32, nb.float32)],
+         cache=True)
 def _get_energy(x, p, nx, npi, lam, tau):
     """
     Calculate the per-particle interaction energy
@@ -58,7 +65,7 @@ def _get_energy(x, p, nx, npi, lam, tau):
     q = t20 + lam * SQRT2 * t22
     energy = 0
     for i in range(nx.shape[0]):
-        exi, eyi, ezi, t32i = _get_properties_from_orientation(nx[i], npi[i])
+        exi, eyi, ezi, t32i = _get_properties_from_orientation(nx[i], npi[i].item())
         t20i, t22i = t20_and_t22_in_6_coordinates(exi, eyi, ezi)
         qi = t20i + lam * SQRT2 * t22i
         energy += (-dot6(q, qi) - tau * dot10(t32, t32i)) / 2
@@ -66,8 +73,8 @@ def _get_energy(x, p, nx, npi, lam, tau):
     return energy
 
 
-@njit(cache=True)
-def _metropolis(d_e, temperature):
+@nb.njit(nb.types.boolean(nb.float32, nb.float32), cache=True)
+def _metropolis(d_e: np.float32, temperature: np.float32) -> bool:
     """
     decide the microstate evolution according to the
     Metropolis algorithm at given temperature.
@@ -80,8 +87,14 @@ def _metropolis(d_e, temperature):
     return False
 
 
-@jit(forceobj=True, nopython=False, parallel=True)
-def _do_orientation_sweep(lattice, indexes, temperature, lam, tau, wiggle_rate):
+@nb.jit(forceobj=True, nopython=False, parallel=True)
+def _do_orientation_sweep(lattice: Lattice,
+                          indexes: NDArray[(Any, 3), np.int32],
+                          temperature: np.float32,
+                          lam: np.float32,
+                          tau: np.float32,
+                          wiggle_rate: np.float32
+                          ) -> None:
     """
     Execute the Metropolis microstate evolution of 'lattice'
     of particles specified by 'indexes' at given temperature, according
@@ -92,7 +105,7 @@ def _do_orientation_sweep(lattice, indexes, temperature, lam, tau, wiggle_rate):
         particle = lattice.particles[tuple(_i)]
         props = lattice.properties[tuple(_i)]
         nx = _get_neighbors(_i, lattice.particles['x'])
-        npi = _get_neighbors(_i, lattice.particles['p'][..., np.newaxis])
+        npi = _get_neighbors(_i, lattice.particles['p'][..., np.newaxis]).reshape(-1)
         energy1 = _get_energy(particle['x'], particle['p'], nx, npi, lam=lam, tau=tau)
 
         # adjust x
@@ -115,15 +128,17 @@ def _do_orientation_sweep(lattice, indexes, temperature, lam, tau, wiggle_rate):
         o = biaxial_ordering(lam)
         if o == 1:
             ex, ey, ez = a, b, c
-        if o == -1:
+        elif o == -1:
             ex, ey, ez = c, a, b
-        if o == 0:
+        elif o == 0:
             ex, ey, ez = b, c, a
+        else:
+            raise Exception(f'{o} is not a recognized biaxial ordering')
         props['t20'], props['t22'] = t20_and_t22_in_6_coordinates(ex, ey, ez)
 
 
-@jit(forceobj=True, nopython=False, cache=True)
-def _get_lattice_averages(lattice):
+@nb.jit(forceobj=True, nopython=False, cache=True)
+def _get_lattice_averages(lattice: Lattice) -> NDArray[(1,), Any]:
     """
     Calculate state average of per-particle properties
     as specified in the 'particle' data type.
@@ -138,8 +153,8 @@ def _get_lattice_averages(lattice):
     return avg
 
 
-@jit(forceobj=True, nopython=False, cache=True)
-def do_lattice_state_update(state: LatticeState):
+@nb.jit(forceobj=True, nopython=False, cache=True)
+def do_lattice_state_update(state: LatticeState) -> None:
     """
     Perform one update of the lattice state, updating
     particles at random (some particles can be updated

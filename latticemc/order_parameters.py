@@ -1,23 +1,30 @@
+from typing import Any, Tuple
+
+import numba as nb
 import numpy as np
-from numba import jit, njit
+from nptyping import NDArray
 
 from .definitions import LatticeState, gathered_order_parameters
-from .tensor_tools import SQRT16, dot10, ten6_to_mat
+from .tensor_tools import SQRT2, SQRT6, SQRT16, dot10, ten6_to_mat
 
 
-@njit(cache=True)
-def biaxial_ordering(lam):
+@nb.njit(nb.int32(nb.float32), cache=True)
+def biaxial_ordering(lam: float) -> int:
     if lam < (SQRT16 - 1e-3):
         return 1
     if lam > (SQRT16 + 1e-3):
         return -1
     if (lam - SQRT16) < 1e-3:
         return 0
+    return -100
 
 
-@njit(cache=True)
-def _q0q2w(mt20, mt22, lam):
-    m_q = mt20 + lam * np.sqrt(2) * mt22
+@nb.njit(nb.types.UniTuple(nb.float32, 3)(nb.float32[:], nb.float32[:], nb.float32), cache=True)
+def _q0q2w(mt20: NDArray[(6,), np.float32],
+           mt22: NDArray[(6,), np.float32],
+           lam: np.float32
+           ) -> Tuple[np.float32, np.float32, np.float32]:
+    m_q = mt20 + lam * SQRT2 * mt22
     m_q = ten6_to_mat(m_q)
     ev = np.linalg.eigvalsh(m_q)
     i = np.argsort(ev**2)[::-1]
@@ -27,11 +34,11 @@ def _q0q2w(mt20, mt22, lam):
     nq2 = 1
     o = biaxial_ordering(lam)
     if o == 1 or o == 0:
-        nq0 = 1 / (np.sqrt(6) / 3)
-        nq2 = 1 / (np.sqrt(2))
+        nq0 = 1 / (SQRT6 / 3)
+        nq2 = 1 / SQRT2
     if o == -1:
-        nq0 = 1 / (np.sqrt(6) / 3 * 2)
-        nq2 = 1 / (np.sqrt(2))
+        nq0 = 1 / (SQRT6 / 3 * 2)
+        nq2 = 1 / SQRT2
 
     q0 = wn * nq0
     q2 = (wl - wm) * nq2
@@ -39,13 +46,13 @@ def _q0q2w(mt20, mt22, lam):
     return q0, q2, w
 
 
-@njit(cache=True)
-def _d322(mt32):
+@nb.njit(nb.float32(nb.float32[:]), cache=True)
+def _d322(mt32: NDArray[(10,), np.float32]) -> np.float32:
     return np.sqrt(dot10(mt32, mt32))
 
 
-@jit(nopython=False, forceobj=True, parallel=True)
-def calculate_order_parameters(state: LatticeState):
+@nb.jit(nopython=False, forceobj=True, parallel=True)
+def calculate_order_parameters(state: LatticeState) -> NDArray[(Any,), Any]:
     """
     Calculate instantaneous order parameters after
     the LatticeState has been updated.

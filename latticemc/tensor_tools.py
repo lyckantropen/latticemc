@@ -1,15 +1,21 @@
+from typing import Tuple
+
+import numba as nb
 import numpy as np
-from numba import njit
+from nptyping import NDArray
 
-SQRT2 = np.sqrt(2)
-SQRT6 = np.sqrt(6)
-SQRT32 = np.sqrt(3 / 2)
-SQRT12 = np.sqrt(1 / 2)
-SQRT16 = np.sqrt(1 / 6)
+SQRT2 = np.float32(np.sqrt(2))
+SQRT6 = np.float32(np.sqrt(6))
+SQRT32 = np.float32(np.sqrt(3 / 2))
+SQRT12 = np.float32(np.sqrt(1 / 2))
+SQRT16 = np.float32(np.sqrt(1 / 6))
 
 
-@njit(cache=True)
-def t20_and_t22_in_6_coordinates(ex, ey, ez):
+@nb.njit(nb.types.UniTuple(nb.float32[:], 2)(nb.float32[:], nb.float32[:], nb.float32[:]), cache=True)
+def t20_and_t22_in_6_coordinates(ex: NDArray[3, np.float32],
+                                 ey: NDArray[3, np.float32],
+                                 ez: NDArray[3, np.float32]
+                                 ) -> Tuple[NDArray[(6,), np.float32], NDArray[(6,), np.float32]]:
     """
     Calculate the T20 and T22 tensors using only 6
     independent components.
@@ -43,14 +49,17 @@ def t20_and_t22_in_6_coordinates(ex, ey, ez):
     ident[0] = 1
     ident[3] = 1
     ident[5] = 1
-    t20 = SQRT32 * (zz - 1 / 3 * ident)
-    t22 = SQRT12 * (xx - yy)
+    t20 = (SQRT32 * (zz - 1 / 3 * ident)).astype(np.float32)
+    t22 = (SQRT12 * (xx - yy)).astype(np.float32)
 
     return t20, t22
 
 
-@njit(cache=True)
-def t32_in_10_coordinates(ex, ey, ez):
+@nb.njit(nb.float32[:](nb.float32[:], nb.float32[:], nb.float32[:]), cache=True)
+def t32_in_10_coordinates(ex: NDArray[3, np.float32],
+                          ey: NDArray[3, np.float32],
+                          ez: NDArray[3, np.float32]
+                          ) -> NDArray[(10,), np.float32]:
     t32 = np.zeros(10, np.float32)
 
     # 000
@@ -94,8 +103,8 @@ def t32_in_10_coordinates(ex, ey, ez):
     return t32 * SQRT16
 
 
-@njit(cache=True)
-def ten6_to_mat(a):
+@nb.njit(nb.float32[:, :](nb.float32[:]), cache=True)
+def ten6_to_mat(a: NDArray[(6,), np.float32]) -> NDArray[(3, 3), np.float32]:
     """
     Convert a symmetric tensor represented using 6
     independent components to a 3x3 matrix
@@ -110,8 +119,8 @@ def ten6_to_mat(a):
     return ret
 
 
-@njit(cache=True)
-def dot6(a, b):
+@nb.njit(nb.float32(nb.float32[:], nb.float32[:]), cache=True)
+def dot6(a: NDArray[(6,), np.float32], b: NDArray[(6,), np.float32]) -> np.float32:
     """
     Rank-2 contraction using only the
     6 non-zero coefficients of a symmetric
@@ -125,8 +134,8 @@ def dot6(a, b):
             2.0 * a[4] * b[4])
 
 
-@njit(cache=True)
-def dot10(a, b):
+@nb.njit(nb.float32(nb.float32[:], nb.float32[:]), cache=True)
+def dot10(a: NDArray[(10,), np.float32], b: NDArray[(10,), np.float32]) -> np.float32:
     """
     Rank-3 contraction using only the
     10 non-zero coefficients of a symmetric
@@ -147,8 +156,8 @@ def dot10(a, b):
     return coeff.sum()
 
 
-@njit(cache=True)
-def quaternion_to_orientation(x):
+@nb.njit(nb.types.UniTuple(nb.float32[:], 3)(nb.float32[:]), cache=True)
+def quaternion_to_orientation(x: NDArray[4, np.float32]) -> Tuple[NDArray[3, np.float32], NDArray[3, np.float32], NDArray[3, np.float32]]:
     """
     Convert arbitrary normalized quaternion to
     a proper rotation in 3D space.
@@ -169,23 +178,28 @@ def quaternion_to_orientation(x):
     return ex, ey, ez
 
 
-@njit(cache=True)
-def t20_t22_matrix(ex, ey, ez):
+@nb.njit(nb.types.UniTuple(nb.float32[:, :], 2)(nb.float32[:], nb.float32[:], nb.float32[:]), cache=True)
+def t20_t22_matrix(ex: NDArray[3, np.float32],
+                   ey: NDArray[3, np.float32],
+                   ez: NDArray[3, np.float32]
+                   ) -> Tuple[NDArray[(3, 3), np.float32], NDArray[(3, 3), np.float32]]:
     xx = np.outer(ex, ex)
     yy = np.outer(ey, ey)
     zz = np.outer(ez, ez)
-    t20 = np.sqrt(3 / 2) * (zz - 1 / 3 * np.eye(3))
-    t22 = np.sqrt(1 / 2) * (xx - yy)
+    t20 = SQRT32 * (zz - 1 / 3 * np.eye(3)).astype(np.float32)
+    t22 = SQRT12 * (xx - yy).astype(np.float32)
     return t20, t22
 
 
-@njit(cache=True)
-def t32_matrix(ex, ey, ez):
-    return np.sqrt(1 / 6) * (
+@nb.njit(nb.float32[:, :, :](nb.float32[:], nb.float32[:], nb.float32[:]), cache=True)
+def t32_matrix(ex: NDArray[3, np.float32],
+               ey: NDArray[3, np.float32],
+               ez: NDArray[3, np.float32]) -> NDArray[(3, 3, 3), np.float32]:
+    return SQRT16 * (
         np.outer(np.outer(ex, ey), ez) +
         np.outer(np.outer(ez, ex), ey) +
         np.outer(np.outer(ey, ez), ex) +
         np.outer(np.outer(ex, ez), ey) +
         np.outer(np.outer(ey, ex), ez) +
         np.outer(np.outer(ez, ey), ex)
-    ).reshape(3, 3, 3)
+    ).reshape(3, 3, 3).astype(np.float32)

@@ -8,8 +8,8 @@ from latticemc.tensor_tools import (quaternion_to_orientation, t20_t22_matrix,
 
 
 def test_get_neighbors_3x3():
-    lattice = np.arange(27).reshape(3, 3, 3)
-    indices = np.array(list(np.ndindex(lattice.shape))).reshape(3, 3, 3, 3)
+    lattice = np.arange(27, dtype=np.float32).reshape(3, 3, 3)
+    indices = np.array(list(np.ndindex(lattice.shape)), dtype=np.float32).reshape(3, 3, 3, 3)
     n = _get_neighbors([0, 0, 0], indices)
     assert np.all(n == [
         [1, 0, 0],
@@ -41,7 +41,7 @@ def test_get_energy():
     p1 = 1
     p2 = -1
 
-    energy = _get_energy(x1, p1, np.array([x2]), np.array([p2]), 0.3, 1)
+    energy = _get_energy(x1, p1, np.array([x2], dtype=np.float32), np.array([p2], dtype=np.int8), 0.3, 1)
 
     ex1, ey1, ez1 = quaternion_to_orientation(x1)
     ex2, ey2, ez2 = quaternion_to_orientation(x2)
@@ -58,13 +58,13 @@ def test_get_energy():
 def test_do_orientation_sweep():
     np.random.seed(42)
     lattice = np.zeros([3, 3, 3], dtype=particle_dof)
-    lattice['x'] = [1, 0, 0, 0]
-    lattice['p'] = np.random.choice([-1, 1], 3 * 3 * 3).reshape(lattice.shape)
+    lattice['x'] = np.array([1, 0, 0, 0], dtype=np.float32)
+    lattice['p'] = np.random.choice([-1, 1], 3 * 3 * 3).reshape(lattice.shape).astype(np.int8)
     lattice_after = lattice.copy()
     indexes = np.array(list(np.ndindex((3, 3, 3)))).reshape(3 * 3 * 3, 3)
 
     lat = Lattice(3, 3, 3)
     lat.particles = lattice_after
-    _do_orientation_sweep(lat, indexes, 2.4, 0.3, 1, 0.1)
+    _do_orientation_sweep(lat, indexes, np.float32(2.4), np.float32(0.3), np.float32(1.0), np.float32(0.1))
     assert np.sum(lattice['x'] == lattice_after['x']) < lattice['x'].size
     assert np.sum(lattice['p'] == lattice_after['p']) < lattice['p'].size
