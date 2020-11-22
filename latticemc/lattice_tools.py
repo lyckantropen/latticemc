@@ -1,6 +1,7 @@
 from typing import Optional
 
 import numpy as np
+from nptyping import NDArray
 from numba import njit
 
 from .definitions import Lattice
@@ -26,7 +27,7 @@ def initialize_random(lattice: Lattice):
     lattice.particles['p'] = np.random.choice([-1, 1], lattice.particles.size).reshape(lattice.particles.shape)
 
 
-def initialize_ordered(lattice: Lattice, x: Optional[np.ndarray] = None, p: Optional[int] = None):
+def initialize_ordered(lattice: Lattice, x: Optional[NDArray[(4,), np.float32]] = None, p: Optional[int] = None):
     """
     Initialize the lattice to the same value. Optionally,
     starting values for the orientation and parity
@@ -38,7 +39,7 @@ def initialize_ordered(lattice: Lattice, x: Optional[np.ndarray] = None, p: Opti
     lattice.particles['p'] = p
 
 
-def initialize_partially_ordered(lattice: Lattice, x: Optional[np.ndarray] = None, p: Optional[int] = None):
+def initialize_partially_ordered(lattice: Lattice, x: Optional[NDArray[(4,), np.float32]] = None, p: Optional[int] = None):
     """
     Initialize the lattice with partial ordering. Given
     initial orientation, perturb the orientations using random

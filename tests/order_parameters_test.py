@@ -7,9 +7,9 @@ from latticemc.tensor_tools import (t20_and_t22_in_6_coordinates,
 
 def test__q0q2w():
     a, b, c = (
-        np.array([1, 0, 0]),
-        np.array([0, 1, 0]),
-        np.array([0, 0, 1])
+        np.array([1, 0, 0], dtype=np.float32),
+        np.array([0, 1, 0], dtype=np.float32),
+        np.array([0, 0, 1], dtype=np.float32)
     )
 
     t20x, t22x = t20_and_t22_in_6_coordinates(a, b, c)
@@ -18,7 +18,7 @@ def test__q0q2w():
 
     q0x, q2x, wx = _q0q2w(t20x, t22x, 0)
     q0y, q2y, wy = _q0q2w(t20y, t22y, np.sqrt(3 / 2))
-    q0z, q2z, wz = _q0q2w(t20z, t22z, np.sqrt(1 / 6))
+    q0z, q2z, wz = _q0q2w(t20z, t22z, np.sqrt(1 / 6) + 1e-7)
 
     assert np.isclose(q0x, 1, atol=1e-6)
     assert np.isclose(q2x, 0, atol=1e-6)
@@ -35,9 +35,9 @@ def test__q0q2w():
 
 def test__d322():
     a, b, c = (
-        np.array([1, 0, 0]),
-        np.array([0, 1, 0]),
-        np.array([0, 0, 1])
+        np.array([1, 0, 0], dtype=np.float32),
+        np.array([0, 1, 0], dtype=np.float32),
+        np.array([0, 0, 1], dtype=np.float32)
     )
     t32 = t32_in_10_coordinates(a, b, c)
     d322 = _d322(t32)

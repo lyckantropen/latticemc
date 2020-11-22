@@ -1,9 +1,10 @@
+import numba as nb
 import numpy as np
-from numba import njit
 
+from nptyping import NDArray
 
-@njit(cache=True)
-def random_quaternion(radius):
+@nb.njit(nb.float32[:](nb.float32), cache=True)
+def random_quaternion(radius: np.float32) -> NDArray[(4,), np.float32]:
     """
     Generate a random point on a 4D-sphere
     of radius equal to 'wiggle_rate'
@@ -36,8 +37,8 @@ def random_quaternion(radius):
     return result
 
 
-@njit(cache=True)
-def wiggle_quaternion(x, wiggle_rate):
+@nb.njit(nb.float32[:](nb.float32[:], nb.float32), cache=True)
+def wiggle_quaternion(x: NDArray[(4,), np.float32], wiggle_rate: np.float32) -> NDArray[(4,), np.float32]:
     """
     Return a normalised 4-vector that is offset from the previous
     one by a random 4-vector of radius 'wiggle_rate'
