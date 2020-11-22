@@ -20,10 +20,11 @@ logger = logging.getLogger(__name__)
 
 class MessageType(Enum):
     """
-    Messages that SimulationProcess can send to Simulation Runner.
-    All messages have the format of a tuple:
-    (MessageType, self.index, payload)
+    The type of message that `SimulationProcess` can send to `SimulationRunner`.
+
+    All messages have the format of a tuple: `(MessageType, self.index, payload)`
     """
+
     OrderParameters = 1
     Fluctuations = 2
     State = 3
@@ -37,7 +38,8 @@ ParallelTemperingParameters = namedtuple('ParallelTemperingParameters', ['parame
 
 class SimulationProcess(mp.Process):
     """
-    A process representing one simulation over a lattice of particles.
+    Rrocess representing one simulation over a lattice of particles.
+
     When parallel tempering is enabled, does not necessarily mean a
     particular configuration of parameters. Otherwise the parameters
     are constant.
@@ -114,7 +116,7 @@ class SimulationProcess(mp.Process):
             per_state_updaters.append(parallel_tempering_updater)
 
         try:
-            for it in range(self.cycles):
+            for _ in range(self.cycles):
                 simulation_numba.do_lattice_state_update(self.state)
                 self._relevant_history_length += 1
                 for u in per_state_updaters:
@@ -130,36 +132,28 @@ class SimulationProcess(mp.Process):
         self.running.value = 0
 
     def _broadcast_order_parameters(self):
-        """
-        Publish at most self._relevant_history_length order
-        parameters from history to the governing thread.
-        """
+        """Publish at most `self._relevant_history_length` order parameters from history to the governing thread."""
         self.queue.put((MessageType.OrderParameters, self.index,
                         (self.state.parameters,
                          self.local_history.order_parameters[-min(self._relevant_history_length, self.report_order_parameters_every):])))
 
     def _broadcast_fluctuations(self):
-        """
-        Publish at most self._relevant_history_length fluctuation
-        values from history to the governing thread.
-        """
+        """Publish at most `self._relevant_history_length` fluctuation values from history to the governing thread."""
         self.queue.put((MessageType.Fluctuations, self.index,
                         (self.state.parameters,
                          self.local_history.fluctuations[-min(self._relevant_history_length, self.report_fluctuations_every):])))
 
     def _broadcast_state(self):
-        """
-        Publish the current Lattice State to the
-        governing thread.
-        """
+        """Publish the current Lattice State to the governing thread."""
         self.queue.put((MessageType.State, self.index, self.state))
 
     def _parallel_tempering(self):
         """
+        Report readiness for parallel tempering update.
+
         Post a message to the queue that this configuration is ready
         for parallel tempering. Open a pipe and wait for a new set
         of parameters, then change them if they are different.
-
         Upon change, publish the relevant order parameters history.
         """
         energy = self.local_history.order_parameters['energy'][-1] * self.state.lattice.particles.size
@@ -254,10 +248,7 @@ class SimulationRunner(threading.Thread):
         [sim.join() for sim in self.simulations]
 
     def _adjacent_temperature(self, pi: ParallelTemperingParameters):
-        """
-        Find the value of adjacent temperature within the
-        values that are present in the simulations.
-        """
+        """Find the value of adjacent temperature within the values that are present in the simulations."""
         temp_index = self._temperatures.index(pi.parameters.temperature)
         if temp_index + 1 == len(self._temperatures):
             return self._temperatures[temp_index - 1]
@@ -266,8 +257,8 @@ class SimulationRunner(threading.Thread):
 
     def _simulation_running_this_temperature(self, temperature: float):
         """
-        Return the running simulation that currently has
-        'temperature' set as the temperature it is running at.
+        Return the running simulation that currently has 'temperature' set as the temperature it is running at.
+
         If no such simulation can be found, return None.
         """
         sims_for_temp = [sim for sim in self.simulations if np.isclose(sim.temperature.value, temperature) and sim.running.value]
@@ -277,11 +268,7 @@ class SimulationRunner(threading.Thread):
             return None
 
     def _do_parallel_tempering(self, pt_ready: List[ParallelTemperingParameters]):
-        """
-        Manage random selection of temperatures and exchanging
-        parameters between configurations using parameters and pipes provided
-        in 'pt_ready'.
-        """
+        """Manage random selection of temperatures and exchanging parameters between configurations."""
         # process waiting list for parallel tempering in random order
         import random
         pt_param = None
