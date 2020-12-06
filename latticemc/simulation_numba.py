@@ -90,7 +90,6 @@ def _metropolis(d_e: np.float32, temperature: np.float32) -> bool:
     return False
 
 
-@nb.jit(forceobj=True, nopython=False, parallel=True)
 def _do_orientation_sweep(lattice: Lattice,
                           indexes: NDArray[(Any, 3), np.int32],
                           temperature: np.float32,
