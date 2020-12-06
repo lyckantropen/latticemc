@@ -14,7 +14,7 @@ def biaxial_ordering(lam: float) -> int:
         return 1
     if lam > (SQRT16 + 1e-3):
         return -1
-    if (lam - SQRT16) < 1e-3:
+    if abs(lam - SQRT16) < 1e-3:
         return 0
     return -100
 

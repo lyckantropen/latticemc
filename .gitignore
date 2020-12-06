@@ -1,6 +1,7 @@
-.vscode
-**/__pycache__
-**.dump
-**/desc.txt
-*.egg-info
 .mypy_cache
+.pytest_cache
+.vscode
+*.egg-info
+**.dump
+**/__pycache__
+**/desc.txt
