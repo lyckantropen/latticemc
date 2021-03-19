@@ -1,10 +1,19 @@
+import numba as nb
 import numpy as np
 
 from latticemc.definitions import Lattice, particle_dof
-from latticemc.simulation_numba import (_do_orientation_sweep, _get_energy,
-                                        _get_neighbors)
-from latticemc.tensor_tools import (quaternion_to_orientation, t20_t22_matrix,
-                                    t32_matrix)
+from latticemc.simulation_numba import _do_orientation_sweep, _get_energy, _get_neighbors
+from latticemc.tensor_tools import quaternion_to_orientation, t20_t22_matrix, t32_matrix
+
+
+@nb.njit
+def _seed(seed):
+    np.random.seed(seed)
+
+
+@nb.njit
+def _choice(options, count):
+    return np.random.choice(options, count)
 
 
 def test_get_neighbors_3x3():
@@ -56,10 +65,10 @@ def test_get_energy():
 
 
 def test_do_orientation_sweep():
-    np.random.seed(42)
+    _seed(42)
     lattice = np.zeros([3, 3, 3], dtype=particle_dof)
     lattice['x'] = np.array([1, 0, 0, 0], dtype=np.float32)
-    lattice['p'] = np.random.choice([-1, 1], 3 * 3 * 3).reshape(lattice.shape).astype(np.int8)
+    lattice['p'] = _choice(np.array([-1, 1]), 3 * 3 * 3).reshape(lattice.shape).astype(np.int8)
     lattice_after = lattice.copy()
     indexes = np.array(list(np.ndindex((3, 3, 3)))).reshape(3 * 3 * 3, 3)
 

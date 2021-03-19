@@ -8,8 +8,7 @@ from nptyping import NDArray
 from .definitions import Lattice, LatticeState, particle_props
 from .order_parameters import biaxial_ordering
 from .random_quaternion import wiggle_quaternion
-from .tensor_tools import (SQRT2, dot6, dot10, quaternion_to_orientation,
-                           t20_and_t22_in_6_coordinates, t32_in_10_coordinates)
+from .tensor_tools import SQRT2, dot6, dot10, quaternion_to_orientation, t20_and_t22_in_6_coordinates, t32_in_10_coordinates
 
 
 @nb.njit([nb.types.UniTuple(nb.float32[:], 4)(nb.float32[:], nb.int8)], cache=True)

@@ -1,15 +1,11 @@
 from decimal import Decimal
 
 from latticemc import simulation_numba
-from latticemc.definitions import (DefiningParameters, Lattice, LatticeState,
-                                   OrderParametersHistory)
+from latticemc.definitions import DefiningParameters, Lattice, LatticeState, OrderParametersHistory
 from latticemc.failsafe import failsafe_save_simulation
 from latticemc.lattice_tools import initialize_partially_ordered
 from latticemc.random_quaternion import random_quaternion
-from latticemc.updaters import (DerivativeWiggleRateAdjustor,
-                                FluctuationsCalculator,
-                                OrderParametersCalculator,
-                                RandomWiggleRateAdjustor)
+from latticemc.updaters import DerivativeWiggleRateAdjustor, FluctuationsCalculator, OrderParametersCalculator, RandomWiggleRateAdjustor
 
 lattice = Lattice(9, 9, 9)
 initialize_partially_ordered(lattice, x=random_quaternion(1))

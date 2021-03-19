@@ -9,11 +9,9 @@ from typing import Dict, List
 import numpy as np
 
 from . import simulation_numba
-from .definitions import (DefiningParameters, LatticeState,
-                          OrderParametersHistory)
+from .definitions import DefiningParameters, LatticeState, OrderParametersHistory
 from .failsafe import failsafe_save_simulation
-from .updaters import (CallbackUpdater, FluctuationsCalculator,
-                       OrderParametersCalculator, Updater)
+from .updaters import CallbackUpdater, FluctuationsCalculator, OrderParametersCalculator, Updater
 
 logger = logging.getLogger(__name__)
 

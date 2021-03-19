@@ -2,8 +2,7 @@ from abc import abstractmethod
 
 import numpy as np
 
-from .definitions import (LatticeState, OrderParametersHistory,
-                          gathered_order_parameters, simulation_stats)
+from .definitions import LatticeState, OrderParametersHistory, gathered_order_parameters, simulation_stats
 from .order_parameters import calculate_order_parameters
 from .statistical import fluctuation
 

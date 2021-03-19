@@ -5,8 +5,7 @@ from decimal import Decimal
 
 import numpy as np
 
-from latticemc.definitions import (DefiningParameters, Lattice, LatticeState,
-                                   OrderParametersHistory)
+from latticemc.definitions import DefiningParameters, Lattice, LatticeState, OrderParametersHistory
 from latticemc.lattice_tools import initialize_partially_ordered
 from latticemc.parallel import SimulationRunner
 from latticemc.random_quaternion import random_quaternion
