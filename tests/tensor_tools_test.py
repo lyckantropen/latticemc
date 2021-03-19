@@ -1,9 +1,7 @@
 import numpy as np
 
-from latticemc.tensor_tools import (dot6, dot10, quaternion_to_orientation,
-                                    t20_and_t22_in_6_coordinates,
-                                    t20_t22_matrix, t32_in_10_coordinates,
-                                    t32_matrix, ten6_to_mat)
+from latticemc.tensor_tools import (dot6, dot10, quaternion_to_orientation, t20_and_t22_in_6_coordinates, t20_t22_matrix, t32_in_10_coordinates, t32_matrix,
+                                    ten6_to_mat)
 
 
 def test_t20_and_t22_in6_coordinates():

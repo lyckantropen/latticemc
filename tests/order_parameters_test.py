@@ -1,8 +1,7 @@
 import numpy as np
 
 from latticemc.order_parameters import _d322, _q0q2w
-from latticemc.tensor_tools import (t20_and_t22_in_6_coordinates,
-                                    t32_in_10_coordinates)
+from latticemc.tensor_tools import t20_and_t22_in_6_coordinates, t32_in_10_coordinates
 
 
 def test__q0q2w():
