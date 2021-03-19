@@ -1,0 +1,10 @@
+prune *
+graft latticemc
+graft tests
+include .gitignore
+include *.cfg
+include *.ini
+include *.py
+include *.txt
+include LICENSE
+include README.md
