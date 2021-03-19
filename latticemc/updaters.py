@@ -10,7 +10,7 @@ from .statistical import fluctuation
 class Updater:
     """
     Base class for executing code during execution of the simulation.
-    
+
     The user can schedule this to be run every defined number of iterations.
     """
 
