@@ -22,5 +22,7 @@ jobs:
         python -m pip install --upgrade pip
         pip install -r requirements.txt
     - name: Package and test with Tox
+      env:
+        TOX_PARALLEL_NO_SPINNER: 1
       run: |
         tox --parallel auto
