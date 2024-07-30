@@ -1,9 +1,8 @@
 from dataclasses import dataclass, field
 from decimal import Decimal
-from typing import Any
 
 import numpy as np
-from nptyping import NDArray
+from nptyping import NDArray, Object, Shape
 
 # per-particle degrees of freedom
 particle_dof = np.dtype([
@@ -64,8 +63,8 @@ class Lattice:
     X: int
     Y: int
     Z: int
-    particles: NDArray[(Any, Any, Any), Any] = field(default=None)
-    properties: NDArray[(Any, Any, Any), Any] = field(default=None)
+    particles: NDArray[Shape, Object] = field(default=None)
+    properties: NDArray[Shape, Object] = field(default=None)
 
     def __post_init__(self):
         self.particles = np.zeros((self.X, self.Y, self.Z), dtype=particle_dof)
@@ -95,13 +94,13 @@ class LatticeState:
 
     iterations: int = 0
     wiggle_rate: float = 1
-    lattice_averages: NDArray[(Any,), Any] = field(default_factory=lambda: np.empty(0, dtype=particle_props))  # instantaneous order parameters
+    lattice_averages: NDArray[Shape, Object] = field(default_factory=lambda: np.empty(0, dtype=particle_props))  # instantaneous order parameters
 
 
 @dataclass
 class OrderParametersHistory:
     """Values of order parameters, fluctuation of order parameters and simulation statistics as a function of time."""
 
-    order_parameters: NDArray[(Any,), Any] = field(default_factory=lambda: np.empty(0, dtype=gathered_order_parameters))
-    fluctuations: NDArray[(Any,), Any] = field(default_factory=lambda: np.empty(0, dtype=gathered_order_parameters))
-    stats: NDArray[(Any,), Any] = field(default_factory=lambda: np.empty(0, dtype=simulation_stats))
+    order_parameters: NDArray[Shape, Object] = field(default_factory=lambda: np.empty(0, dtype=gathered_order_parameters))
+    fluctuations: NDArray[Shape, Object] = field(default_factory=lambda: np.empty(0, dtype=gathered_order_parameters))
+    stats: NDArray[Shape, Object] = field(default_factory=lambda: np.empty(0, dtype=simulation_stats))

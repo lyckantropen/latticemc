@@ -2,7 +2,7 @@ from typing import Tuple
 
 import numba as nb
 import numpy as np
-from nptyping import NDArray
+from nptyping import Float32, NDArray, Shape
 
 SQRT2 = np.float32(np.sqrt(2))
 SQRT6 = np.float32(np.sqrt(6))
@@ -12,10 +12,10 @@ SQRT16 = np.float32(np.sqrt(1 / 6))
 
 
 @nb.njit(nb.types.UniTuple(nb.float32[:], 2)(nb.float32[:], nb.float32[:], nb.float32[:]), cache=True)
-def t20_and_t22_in_6_coordinates(ex: NDArray[3, np.float32],
-                                 ey: NDArray[3, np.float32],
-                                 ez: NDArray[3, np.float32]
-                                 ) -> Tuple[NDArray[(6,), np.float32], NDArray[(6,), np.float32]]:
+def t20_and_t22_in_6_coordinates(ex: NDArray[Shape['3'], Float32],
+                                 ey: NDArray[Shape['3'], Float32],
+                                 ez: NDArray[Shape['3'], Float32]
+                                 ) -> Tuple[NDArray[Shape['6'], Float32], NDArray[Shape['6'], Float32]]:
     """Calculate the T20 and T22 tensors in the coordinate system defined by `ex`, `ey`, `ez` using only 6 independent components."""
     xx = np.zeros(6, np.float32)
     yy = np.zeros(6, np.float32)
@@ -53,10 +53,10 @@ def t20_and_t22_in_6_coordinates(ex: NDArray[3, np.float32],
 
 
 @nb.njit(nb.float32[:](nb.float32[:], nb.float32[:], nb.float32[:]), cache=True)
-def t32_in_10_coordinates(ex: NDArray[3, np.float32],
-                          ey: NDArray[3, np.float32],
-                          ez: NDArray[3, np.float32]
-                          ) -> NDArray[(10,), np.float32]:
+def t32_in_10_coordinates(ex: NDArray[Shape['3'], Float32],
+                          ey: NDArray[Shape['3'], Float32],
+                          ez: NDArray[Shape['3'], Float32]
+                          ) -> NDArray[Shape['10'], Float32]:
     """Calculate the T32 tensor in the coordinate system defined by `ex`, `ey`, `ez` using only 10 independent components."""
     t32 = np.zeros(10, np.float32)
 
@@ -102,7 +102,7 @@ def t32_in_10_coordinates(ex: NDArray[3, np.float32],
 
 
 @nb.njit(nb.float32[:, :](nb.float32[:]), cache=True)
-def ten6_to_mat(a: NDArray[(6,), np.float32]) -> NDArray[(3, 3), np.float32]:
+def ten6_to_mat(a: NDArray[Shape['6'], Float32]) -> NDArray[Shape['3,3'], Float32]:
     """Convert a symmetric tensor represented using 6 independent components to a 3x3 matrix."""
     ret = np.zeros((3, 3), np.float32)
     ret[0, 0] = a[0]
@@ -115,7 +115,7 @@ def ten6_to_mat(a: NDArray[(6,), np.float32]) -> NDArray[(3, 3), np.float32]:
 
 
 @nb.njit(nb.float32(nb.float32[:], nb.float32[:]), cache=True)
-def dot6(a: NDArray[(6,), np.float32], b: NDArray[(6,), np.float32]) -> np.float32:
+def dot6(a: NDArray[Shape['6'], Float32], b: NDArray[Shape['6'], Float32]) -> np.float32:
     """Perform rank-2 contraction using only the 6 non-zero coefficients of a symmetric tensor."""
     return (a[0] * b[0] +
             a[3] * b[3] +
@@ -126,7 +126,7 @@ def dot6(a: NDArray[(6,), np.float32], b: NDArray[(6,), np.float32]) -> np.float
 
 
 @nb.njit(nb.float32(nb.float32[:], nb.float32[:]), cache=True)
-def dot10(a: NDArray[(10,), np.float32], b: NDArray[(10,), np.float32]) -> np.float32:
+def dot10(a: NDArray[Shape['10'], Float32], b: NDArray[Shape['10'], Float32]) -> np.float32:
     """Perform rank-3 contraction using only the 10 non-zero coefficients of a symmetric tensor."""
     coeff = np.zeros(10, np.float32)
     coeff[0] = 1
@@ -144,7 +144,7 @@ def dot10(a: NDArray[(10,), np.float32], b: NDArray[(10,), np.float32]) -> np.fl
 
 
 @nb.njit(nb.types.UniTuple(nb.float32[:], 3)(nb.float32[:]), cache=True)
-def quaternion_to_orientation(x: NDArray[4, np.float32]) -> Tuple[NDArray[3, np.float32], NDArray[3, np.float32], NDArray[3, np.float32]]:
+def quaternion_to_orientation(x: NDArray[Shape['4'], Float32]) -> Tuple[NDArray[Shape['3'], Float32], NDArray[Shape['3'], Float32], NDArray[Shape['3'], Float32]]:
     """
     Convert an arbitrary normalized quaternion to a proper rotation in 3D space.
 
@@ -170,10 +170,10 @@ def quaternion_to_orientation(x: NDArray[4, np.float32]) -> Tuple[NDArray[3, np.
 
 
 @nb.njit(nb.types.UniTuple(nb.float32[:, :], 2)(nb.float32[:], nb.float32[:], nb.float32[:]), cache=True)
-def t20_t22_matrix(ex: NDArray[3, np.float32],
-                   ey: NDArray[3, np.float32],
-                   ez: NDArray[3, np.float32]
-                   ) -> Tuple[NDArray[(3, 3), np.float32], NDArray[(3, 3), np.float32]]:
+def t20_t22_matrix(ex: NDArray[Shape['3'], Float32],
+                   ey: NDArray[Shape['3'], Float32],
+                   ez: NDArray[Shape['3'], Float32]
+                   ) -> Tuple[NDArray[Shape['3,3'], Float32], NDArray[Shape['3,3'], Float32]]:
     """Create the T20 and T22 tensors as 3x3 matrices in the coordinate system defined by `ex`, `ey` and `ez."""
     xx = np.outer(ex, ex)
     yy = np.outer(ey, ey)
@@ -184,9 +184,9 @@ def t20_t22_matrix(ex: NDArray[3, np.float32],
 
 
 @nb.njit(nb.float32[:, :, :](nb.float32[:], nb.float32[:], nb.float32[:]), cache=True)
-def t32_matrix(ex: NDArray[3, np.float32],
-               ey: NDArray[3, np.float32],
-               ez: NDArray[3, np.float32]) -> NDArray[(3, 3, 3), np.float32]:
+def t32_matrix(ex: NDArray[Shape['3'], Float32],
+               ey: NDArray[Shape['3'], Float32],
+               ez: NDArray[Shape['3'], Float32]) -> NDArray[Shape['3, 3, 3'], Float32]:
     """Create the T32 tensor as a 3x3x3 matrix in the coordinate system defined by `ex`, `ey` and `ez."""
     return SQRT16 * (
         np.outer(np.outer(ex, ey), ez) +

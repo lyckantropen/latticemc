@@ -1,8 +1,8 @@
-from typing import Any, Tuple
+from typing import Tuple
 
 import numba as nb
 import numpy as np
-from nptyping import NDArray
+from nptyping import Float32, NDArray, Object, Shape
 
 from .definitions import LatticeState, gathered_order_parameters
 from .tensor_tools import SQRT2, SQRT6, SQRT16, dot10, ten6_to_mat
@@ -20,8 +20,8 @@ def biaxial_ordering(lam: float) -> int:
 
 
 @nb.njit(nb.types.UniTuple(nb.float32, 3)(nb.float32[:], nb.float32[:], nb.float32), cache=True)
-def _q0q2w(mt20: NDArray[(6,), np.float32],
-           mt22: NDArray[(6,), np.float32],
+def _q0q2w(mt20: NDArray[Shape['6'], Float32],
+           mt22: NDArray[Shape['6'], Float32],
            lam: np.float32
            ) -> Tuple[np.float32, np.float32, np.float32]:
     m_q = mt20 + lam * SQRT2 * mt22
@@ -47,12 +47,12 @@ def _q0q2w(mt20: NDArray[(6,), np.float32],
 
 
 @nb.njit(nb.float32(nb.float32[:]), cache=True)
-def _d322(mt32: NDArray[(10,), np.float32]) -> np.float32:
+def _d322(mt32: NDArray[Shape['10'], Float32]) -> np.float32:
     return np.sqrt(dot10(mt32, mt32))
 
 
 @nb.jit(nopython=False, forceobj=True, parallel=True)
-def calculate_order_parameters(state: LatticeState) -> NDArray[(Any,), Any]:
+def calculate_order_parameters(state: LatticeState) -> NDArray[Shape, Object]:
     """Calculate instantaneous order parameters after the `LatticeState` has been updated."""
     avg = state.lattice_averages[0]
     q0, q2, w = _q0q2w(avg['t20'], avg['t22'], float(state.parameters.lam))

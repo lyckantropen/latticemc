@@ -1,9 +1,9 @@
 """Monte Carlo lattice simulation accelerated using Numba (much, much faster than plain Python)."""
-from typing import Any, Tuple
+from typing import Tuple
 
 import numba as nb
 import numpy as np
-from nptyping import NDArray
+from nptyping import Float32, Int32, NDArray, Object, Shape
 
 from .definitions import Lattice, LatticeState, particle_props
 from .order_parameters import biaxial_ordering
@@ -12,9 +12,9 @@ from .tensor_tools import SQRT2, dot6, dot10, quaternion_to_orientation, t20_and
 
 
 @nb.njit([nb.types.UniTuple(nb.float32[:], 4)(nb.float32[:], nb.int8)], cache=True)
-def _get_properties_from_orientation(x: NDArray[4, np.float32],
+def _get_properties_from_orientation(x: NDArray[Shape['4'], Float32],
                                      parity: np.int8
-                                     ) -> Tuple[NDArray[3, np.float32], NDArray[3, np.float32], NDArray[3, np.float32], NDArray[10, np.float32]]:
+                                     ) -> Tuple[NDArray[Shape['3'], Float32], NDArray[Shape['3'], Float32], NDArray[Shape['3'], Float32], NDArray[Shape['10'], Float32]]:
     """
     Calculate per-particle properties from the orientation quaternion 'x' and parity 'p'.
 
@@ -26,7 +26,7 @@ def _get_properties_from_orientation(x: NDArray[4, np.float32],
         y vector of particle orientation
     ez: NDArray[(3,), np.float32]
         z vector of particle orientation
-    t32: NDArray[(10,), np.float32]
+    t32: NDArray[Shape['10'], np.float32]
         the T32 tensor at the particle
     """
     ex, ey, ez = quaternion_to_orientation(x)
@@ -36,7 +36,7 @@ def _get_properties_from_orientation(x: NDArray[4, np.float32],
 
 
 @nb.njit(cache=True)
-def _get_neighbors(center: NDArray[3, np.int32], lattice: NDArray[(Any, Any, Any), Any]):
+def _get_neighbors(center: NDArray[Shape['3'], Int32], lattice: NDArray[Shape, Object]):
     """
     Get nearest neighbors of a particle site on the lattice.
 
@@ -90,7 +90,7 @@ def _metropolis(d_e: np.float32, temperature: np.float32) -> bool:
 
 
 def _do_orientation_sweep(lattice: Lattice,
-                          indexes: NDArray[(Any, 3), np.int32],
+                          indexes: NDArray[Shape['*,3'], Int32],
                           temperature: np.float32,
                           lam: np.float32,
                           tau: np.float32,
@@ -141,7 +141,7 @@ def _do_orientation_sweep(lattice: Lattice,
 
 
 @nb.jit(forceobj=True, nopython=False, cache=True)
-def _get_lattice_averages(lattice: Lattice) -> NDArray[(1,), Any]:
+def _get_lattice_averages(lattice: Lattice) -> NDArray[Shape['1'], Object]:
     """Calculate state average of per-particle properties as specified in the 'particle' data type."""
     avg = np.zeros(1, dtype=particle_props)
     avg['t20'] = lattice.properties['t20'].mean(axis=(0, 1, 2))

@@ -5,7 +5,7 @@ __pycache__
 .mypy_cache
 .pytest_cache
 .tox
-.venv
+.venv*
 .vs
 .vscode
 *.egg-info
