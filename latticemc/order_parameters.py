@@ -2,7 +2,7 @@ from typing import Tuple
 
 import numba as nb
 import numpy as np
-from nptyping import Float32, NDArray, Object, Shape
+from jaxtyping import Float32, Shaped
 
 from .definitions import LatticeState, gathered_order_parameters
 from .tensor_tools import SQRT2, SQRT6, SQRT16, dot10, ten6_to_mat
@@ -20,8 +20,8 @@ def biaxial_ordering(lam: float) -> int:
 
 
 @nb.njit(nb.types.UniTuple(nb.float32, 3)(nb.float32[:], nb.float32[:], nb.float32), cache=True)
-def _q0q2w(mt20: NDArray[Shape['6'], Float32],
-           mt22: NDArray[Shape['6'], Float32],
+def _q0q2w(mt20: Float32[np.ndarray, "6"],
+           mt22: Float32[np.ndarray, "6"],
            lam: np.float32
            ) -> Tuple[np.float32, np.float32, np.float32]:
     m_q = mt20 + lam * SQRT2 * mt22
@@ -30,15 +30,15 @@ def _q0q2w(mt20: NDArray[Shape['6'], Float32],
     i = np.argsort(ev**2)[::-1]
     wn, wm, wl = ev[i]
 
-    nq0 = 1
-    nq2 = 1
+    nq0 = np.float32(1)
+    nq2 = np.float32(1)
     o = biaxial_ordering(lam)
     if o == 1 or o == 0:
-        nq0 = 1 / (SQRT6 / 3)
-        nq2 = 1 / SQRT2
+        nq0 = np.float32(1 / (SQRT6 / 3))
+        nq2 = np.float32(1 / SQRT2)
     if o == -1:
-        nq0 = 1 / (SQRT6 / 3 * 2)
-        nq2 = 1 / SQRT2
+        nq0 = np.float32(1 / (SQRT6 / 3 * 2))
+        nq2 = np.float32(1 / SQRT2)
 
     q0 = wn * nq0
     q2 = (wl - wm) * nq2
@@ -47,12 +47,12 @@ def _q0q2w(mt20: NDArray[Shape['6'], Float32],
 
 
 @nb.njit(nb.float32(nb.float32[:]), cache=True)
-def _d322(mt32: NDArray[Shape['10'], Float32]) -> np.float32:
+def _d322(mt32: Float32[np.ndarray, "10"]) -> np.float32:
     return np.sqrt(dot10(mt32, mt32))
 
 
 @nb.jit(nopython=False, forceobj=True, parallel=True)
-def calculate_order_parameters(state: LatticeState) -> NDArray[Shape, Object]:
+def calculate_order_parameters(state: LatticeState) -> Shaped[np.ndarray, "..."]:
     """Calculate instantaneous order parameters after the `LatticeState` has been updated."""
     avg = state.lattice_averages[0]
     q0, q2, w = _q0q2w(avg['t20'], avg['t22'], float(state.parameters.lam))

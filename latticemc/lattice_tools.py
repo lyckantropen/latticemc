@@ -1,7 +1,7 @@
 from typing import Optional
 
 import numpy as np
-from nptyping import Float32, NDArray, Shape
+from jaxtyping import Float32
 from numba import njit
 
 from .definitions import Lattice
@@ -21,19 +21,19 @@ def initialize_random(lattice: Lattice):
     lattice.particles['p'] = np.random.choice([-1, 1], lattice.particles.size).reshape(lattice.particles.shape)
 
 
-def initialize_ordered(lattice: Lattice, x: Optional[NDArray[Shape['4'], Float32]] = None, p: Optional[int] = None):
+def initialize_ordered(lattice: Lattice, x: Optional[Float32[np.ndarray, "4"]] = None, p: Optional[int] = None):
     """
     Initialize the lattice to the same value.
 
     Optionally, starting values for the orientation and parity can be specified.
     """
-    x = x if x is not None else [1, 0, 0, 0]
+    x = x if x is not None else np.array([1, 0, 0, 0], dtype=np.float32)
     p = p if p is not None else 1
     lattice.particles['x'] = x
     lattice.particles['p'] = p
 
 
-def initialize_partially_ordered(lattice: Lattice, x: Optional[NDArray[Shape['4'], Float32]] = None, p: Optional[int] = None):
+def initialize_partially_ordered(lattice: Lattice, x: Optional[Float32[np.ndarray, "4"]] = None, p: Optional[int] = None):
     """
     Initialize the lattice with partial ordering.
 
@@ -42,7 +42,7 @@ def initialize_partially_ordered(lattice: Lattice, x: Optional[NDArray[Shape['4'
     25% of particles with random parity. Optionally, starting values
     for the orientation and parity can be specified.
     """
-    x = x if x is not None else [1, 0, 0, 0]
+    x = x if x is not None else np.array([1, 0, 0, 0], dtype=np.float32)
     p = p if p is not None else 1
     lattice.particles['p'] = np.random.choice([-p, p], lattice.particles.size, p=[0.25, 0.75]).reshape(lattice.particles.shape)
     lattice.particles['x'] = x

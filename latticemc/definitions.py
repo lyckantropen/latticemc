@@ -2,7 +2,7 @@ from dataclasses import dataclass, field
 from decimal import Decimal
 
 import numpy as np
-from nptyping import NDArray, Object, Shape
+from jaxtyping import Float32, Int32, Shaped
 
 # per-particle degrees of freedom
 particle_dof = np.dtype([
@@ -53,6 +53,8 @@ gathered_order_parameters = np.dtype([
 # data type to store statistics
 simulation_stats = np.dtype([
     ('wiggle_rate', np.float32),
+    ('accepted_x', np.int32),
+    ('accepted_p', np.int32),
 ])
 
 
@@ -63,8 +65,8 @@ class Lattice:
     X: int
     Y: int
     Z: int
-    particles: NDArray[Shape, Object] = field(default=None)
-    properties: NDArray[Shape, Object] = field(default=None)
+    particles: Shaped[np.ndarray, "W H L"] = field(default=None)
+    properties: Shaped[np.ndarray, "W H L"] = field(default=None)
 
     def __post_init__(self):
         self.particles = np.zeros((self.X, self.Y, self.Z), dtype=particle_dof)
@@ -94,13 +96,16 @@ class LatticeState:
 
     iterations: int = 0
     wiggle_rate: float = 1
-    lattice_averages: NDArray[Shape, Object] = field(default_factory=lambda: np.empty(0, dtype=particle_props))  # instantaneous order parameters
+    accepted_x: int = 0
+    accepted_p: int = 0
+    lattice_averages: Shaped[np.ndarray, "..."] = field(default_factory=lambda: np.empty(
+        0, dtype=particle_props))  # instantaneous order parameters
 
 
 @dataclass
 class OrderParametersHistory:
     """Values of order parameters, fluctuation of order parameters and simulation statistics as a function of time."""
 
-    order_parameters: NDArray[Shape, Object] = field(default_factory=lambda: np.empty(0, dtype=gathered_order_parameters))
-    fluctuations: NDArray[Shape, Object] = field(default_factory=lambda: np.empty(0, dtype=gathered_order_parameters))
-    stats: NDArray[Shape, Object] = field(default_factory=lambda: np.empty(0, dtype=simulation_stats))
+    order_parameters: Shaped[np.ndarray, "..."] = field(default_factory=lambda: np.empty(0, dtype=gathered_order_parameters))
+    fluctuations: Shaped[np.ndarray, "..."] = field(default_factory=lambda: np.empty(0, dtype=gathered_order_parameters))
+    stats: Shaped[np.ndarray, "..."] = field(default_factory=lambda: np.empty(0, dtype=simulation_stats))

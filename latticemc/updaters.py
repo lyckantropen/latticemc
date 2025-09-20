@@ -42,7 +42,8 @@ class OrderParametersCalculator(Updater):
     def update(self, state: LatticeState):
         op = calculate_order_parameters(state)
         self.order_parameters_history.order_parameters = np.append(self.order_parameters_history.order_parameters, op)
-        self.order_parameters_history.stats = np.append(self.order_parameters_history.stats, np.array([(state.wiggle_rate,)], dtype=simulation_stats))
+        self.order_parameters_history.stats = np.append(self.order_parameters_history.stats,
+                                                        np.array([(state.wiggle_rate, state.accepted_x, state.accepted_p)], dtype=simulation_stats))
         return op
 
     def format_value(self, value):
@@ -80,6 +81,21 @@ class RandomWiggleRateAdjustor(Updater):
             state.wiggle_rate = np.random.normal(self.reset_value, scale=self.scale)
         else:
             state.wiggle_rate = np.random.normal(state.wiggle_rate, scale=self.scale)
+        return state.wiggle_rate
+
+
+class AcceptanceRateWiggleRateAdjustor(Updater):
+    def __init__(self, lower_bound: float = 0.2, upper_bound: float = 0.5, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.lower_bound = lower_bound
+        self.upper_bound = upper_bound
+
+    def update(self, state: LatticeState) -> float:
+        acceptance_rate = state.accepted_x / state.lattice.particles.size
+        if acceptance_rate > self.upper_bound:
+            state.wiggle_rate *= 1.1
+        elif acceptance_rate < self.lower_bound:
+            state.wiggle_rate *= 0.9
         return state.wiggle_rate
 
 

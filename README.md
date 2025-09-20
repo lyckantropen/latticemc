@@ -11,12 +11,23 @@ modern Python.
 
 ## Installing
 
-Python 3.7 is required. PyPi packages are coming. Until then, after cloning the
-package can be installed in development mode in a virtual environment:
+Python 3.9+ is required. After cloning the repository, the package can be installed in development mode:
 
 ```bash
-pip install --upgrade -r requirements.txt
+# Install the package in development mode
+pip install -e .
+
+# Or install with optional dependencies for testing
+pip install -e .[tests]
+
+# Or install with optional dependencies for notebooks
+pip install -e .[notebook]
+
+# Or install with all optional dependencies
+pip install -e .[tests,notebook]
 ```
+
+The project now uses modern Python packaging with `pyproject.toml` for configuration.
 
 ## References
 
