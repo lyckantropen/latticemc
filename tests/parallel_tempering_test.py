@@ -195,7 +195,8 @@ class TestParallelTempering:
                 energy=100.0 - i * 10,  # Decreasing energy with increasing temperature
                 pipe=pipes[i][1]
             )
-            pt_ready.append(pt_param)
+            # pt_ready now contains tuples of (simulation_index, ParallelTemperingParameters)
+            pt_ready.append((i, pt_param))
 
         # Test synchronized exchange with all replicas ready
         runner._do_synchronized_exchange(pt_ready)
@@ -269,7 +270,8 @@ class TestParallelTempering:
         runner.join(timeout=15)  # Give enough time for ping timeout detection
 
         # Check if runner detected the crash (it should have stopped due to exception)
-        assert not runner.is_alive(), "Runner should have stopped due to process crash"
+        assert not runner.alive(), "Runner should have stopped due to process crash"
+        assert not runner.finished_gracefully(), "Runner should not have finished gracefully after process crash"
 
     def test_ping_mechanism_during_normal_operation(self):
         """Test that ping messages are sent and received during normal operation."""

@@ -336,7 +336,12 @@ class SimulationRunner(threading.Thread):
                     logger.debug(f'SimulationProcess[{index}]: Ping received at iteration {iterations}')
 
             # Check for crashed processes and raise exception if any are found
-            self._check_for_crashed_processes()
+            try:
+                self._check_for_crashed_processes()
+            except RuntimeError as e:
+                logger.error(f'SimulationRunner: Stopping due to error: {e}')
+                self.stop()
+                raise e
 
             # Perform parallel tempering if enabled and there are replicas ready
             if self.parallel_tempering_enabled:
@@ -513,6 +518,7 @@ class SimulationRunner(threading.Thread):
     def stop(self) -> None:
         """Terminate all simulation processes."""
         [sim.terminate() for sim in self.simulations]  # type: ignore
+        [sim.join() for sim in self.simulations if sim.is_alive()]  # type: ignore
 
     def alive(self) -> bool:
         """Check if any simulation processes are still running."""
