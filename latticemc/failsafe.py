@@ -1,7 +1,10 @@
+"""Emergency save functionality for simulation state."""
+
 from .definitions import LatticeState, OrderParametersHistory
 
 
 def failsafe_save_simulation(e: Exception, state: LatticeState, order_parameters_history: OrderParametersHistory):
+    """Save simulation state to disk when an exception occurs."""
     try:
         import traceback
         tb = traceback.format_exc()
@@ -22,10 +25,11 @@ def failsafe_save_simulation(e: Exception, state: LatticeState, order_parameters
 
         ts = '{:%Y-%m-%d %H:%M:%S}'.format(datetime.now())
 
+        lattice_shape = getattr(state.lattice.particles, 'shape', 'unknown') if state.lattice.particles is not None else 'None'
         desc_str = (
             f'time={ts}\niterations={state.iterations}\n'
             f'parameters={state.parameters}\n'
-            f'latticeSize={state.lattice.particles.shape}\n'
+            f'latticeSize={lattice_shape}\n'
             f'wiggle_rate={state.wiggle_rate}\n\n'
             f'{tb}\n'
         )

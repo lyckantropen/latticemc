@@ -1,10 +1,13 @@
+"""Parallel processing and threading support for lattice simulations."""
+
 import logging
 import multiprocessing as mp
 import threading
 from collections import namedtuple
 from ctypes import c_double
+from decimal import Decimal
 from enum import Enum
-from typing import Dict, List
+from typing import Dict, List, Optional, cast
 
 import numpy as np
 
@@ -53,8 +56,8 @@ class SimulationProcess(mp.Process):
                  report_state_every: int = 1000,
                  fluctuations_window: int = 1000,
                  per_state_updaters: List[Updater] = [],
-                 parallel_tempering_interval: int = None
-                 ):
+                 parallel_tempering_interval: Optional[int] = None
+                 ) -> None:
         super().__init__()
         self.index = index
         self.queue = queue
@@ -75,7 +78,8 @@ class SimulationProcess(mp.Process):
         self._relevant_history_length = 0
         self.local_history = OrderParametersHistory()
 
-    def run(self):
+    def run(self) -> None:
+        """Execute the simulation process."""
         order_parameters_broadcaster = CallbackUpdater(
             callback=lambda _: self._broadcast_order_parameters(),
             how_often=self.report_order_parameters_every,
@@ -129,13 +133,13 @@ class SimulationProcess(mp.Process):
         self.queue.put((MessageType.Finished, self.index, self.state.parameters))
         self.running.value = 0
 
-    def _broadcast_order_parameters(self):
+    def _broadcast_order_parameters(self) -> None:
         """Publish at most `self._relevant_history_length` order parameters from history to the governing thread."""
         self.queue.put((MessageType.OrderParameters, self.index,
                         (self.state.parameters,
                          self.local_history.order_parameters[-min(self._relevant_history_length, self.report_order_parameters_every):])))
 
-    def _broadcast_fluctuations(self):
+    def _broadcast_fluctuations(self) -> None:
         """Publish at most `self._relevant_history_length` fluctuation values from history to the governing thread."""
         self.queue.put((MessageType.Fluctuations, self.index,
                         (self.state.parameters,
@@ -145,7 +149,7 @@ class SimulationProcess(mp.Process):
         """Publish the current Lattice State to the governing thread."""
         self.queue.put((MessageType.State, self.index, self.state))
 
-    def _parallel_tempering(self):
+    def _parallel_tempering(self) -> None:
         """
         Report readiness for parallel tempering update.
 
@@ -154,7 +158,7 @@ class SimulationProcess(mp.Process):
         of parameters, then change them if they are different.
         Upon change, publish the relevant order parameters history.
         """
-        energy = self.local_history.order_parameters['energy'][-1] * self.state.lattice.particles.size
+        energy = self.local_history.order_parameters['energy'][-1] * cast(np.ndarray, self.state.lattice.particles).size
         our, theirs = mp.Pipe()
         self.queue.put((MessageType.ParallelTemperingSignUp, self.index, ParallelTemperingParameters(
             parameters=self.state.parameters, energy=energy, pipe=theirs)))
@@ -182,11 +186,13 @@ class SimulationProcess(mp.Process):
 
 
 class SimulationRunner(threading.Thread):
+    """Thread that manages multiple simulation processes."""
+
     def __init__(self,
                  initial_states: List[LatticeState],
                  order_parameters_history: Dict[DefiningParameters, OrderParametersHistory],
                  *args,
-                 **kwargs):
+                 **kwargs) -> None:
         threading.Thread.__init__(self)
 
         self.states = initial_states
@@ -199,10 +205,11 @@ class SimulationRunner(threading.Thread):
         self._starting = True
 
         # for parallel tempering
-        self._temperatures = [state.parameters.temperature for state in self.states]
+        self._temperatures: List[Decimal] = [state.parameters.temperature for state in self.states]
 
-    def run(self):
-        q = mp.Queue()
+    def run(self) -> None:
+        """Execute all simulation processes."""
+        q: mp.Queue = mp.Queue()
 
         self.simulations = []
         for i, state in enumerate(self.states):
@@ -243,9 +250,9 @@ class SimulationRunner(threading.Thread):
 
             self._do_parallel_tempering(pt_ready)
 
-        [sim.join() for sim in self.simulations]
+        [sim.join() for sim in self.simulations]  # type: ignore
 
-    def _adjacent_temperature(self, pi: ParallelTemperingParameters):
+    def _adjacent_temperature(self, pi: ParallelTemperingParameters) -> Decimal:
         """Find the value of adjacent temperature within the values that are present in the simulations."""
         temp_index = self._temperatures.index(pi.parameters.temperature)
         if temp_index + 1 == len(self._temperatures):
@@ -307,8 +314,10 @@ class SimulationRunner(threading.Thread):
         d_e = e1 - e2
         return d_b * d_e > 0 or np.random.random() < np.exp(d_b * d_e)
 
-    def stop(self):
-        [sim.terminate() for sim in self.simulations]
+    def stop(self) -> None:
+        """Terminate all simulation processes."""
+        [sim.terminate() for sim in self.simulations]  # type: ignore
 
-    def alive(self):
-        return self._starting or [sim for sim in self.simulations if sim.is_alive() or sim.running.value]
+    def alive(self) -> bool:
+        """Check if any simulation processes are still running."""
+        return self._starting or bool([sim for sim in self.simulations if sim.is_alive() or sim.running.value])

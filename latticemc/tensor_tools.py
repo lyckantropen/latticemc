@@ -1,3 +1,5 @@
+"""Tensor mathematics and quaternion operations for liquid crystal calculations."""
+
 from typing import Tuple
 
 import numba as nb

@@ -1,3 +1,5 @@
+"""Update mechanisms for simulation state tracking and analysis."""
+
 from abc import abstractmethod
 
 import numpy as np
@@ -21,25 +23,31 @@ class Updater:
         self.print_every = print_every
 
     def perform(self, state: LatticeState):
+        """Execute the update if conditions are met and optionally print results."""
         if state.iterations >= self.since_when and state.iterations % self.how_often == 0:
             self.last_value = self.update(state)
             if self.print_every is not None and state.iterations % self.print_every == 0:
                 print(f'[{state.iterations},{state.parameters}]:\t {self.format_value(self.last_value)}')
 
     def format_value(self, value):
+        """Format the update value for display."""
         return str(value)
 
     @abstractmethod
     def update(self, state: LatticeState):
+        """Perform the actual update operation."""
         pass
 
 
 class OrderParametersCalculator(Updater):
+    """Calculate and store order parameters during simulation."""
+
     def __init__(self, order_parameters_history: OrderParametersHistory, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.order_parameters_history = order_parameters_history
 
     def update(self, state: LatticeState):
+        """Calculate and store current order parameters."""
         op = calculate_order_parameters(state)
         self.order_parameters_history.order_parameters = np.append(self.order_parameters_history.order_parameters, op)
         self.order_parameters_history.stats = np.append(self.order_parameters_history.stats,
@@ -47,36 +55,45 @@ class OrderParametersCalculator(Updater):
         return op
 
     def format_value(self, value):
+        """Format order parameters for display."""
         s = ','.join([f'{name}={value[name][0]:.5f}' for name in gathered_order_parameters.fields.keys()])
         return 'averg: ' + s
 
 
 class FluctuationsCalculator(Updater):
+    """Calculate fluctuations of order parameters over a sliding window."""
+
     def __init__(self, order_parameters_history: OrderParametersHistory, *args, window=100, **kwargs):
         super().__init__(*args, **kwargs)
         self.order_parameters_history = order_parameters_history
 
     def update(self, state):
+        """Calculate fluctuations for recent order parameters."""
         fluctuations = np.zeros(1, dtype=gathered_order_parameters)
         for name in gathered_order_parameters.fields.keys():
-            fluct = state.lattice.particles.size * fluctuation(self.order_parameters_history.order_parameters[name][-100:])
+            particles_size = state.lattice.particles.size if state.lattice.particles is not None else 1
+            fluct = particles_size * fluctuation(self.order_parameters_history.order_parameters[name][-100:])
             fluctuations[name] = fluct
 
         self.order_parameters_history.fluctuations = np.append(self.order_parameters_history.fluctuations, fluctuations)
         return fluctuations
 
     def format_value(self, value):
+        """Format fluctuations for display."""
         s = ','.join([f'{name}={value[name][0]:.5f}' for name in gathered_order_parameters.fields.keys()])
         return 'fluct: ' + s
 
 
 class RandomWiggleRateAdjustor(Updater):
+    """Randomly adjust the wiggle rate parameter."""
+
     def __init__(self, scale, *args, reset_value=None, **kwargs):
         super().__init__(*args, **kwargs)
         self.scale = scale
         self.reset_value = reset_value
 
     def update(self, state):
+        """Randomly adjust wiggle rate using normal distribution."""
         if self.reset_value is not None:
             state.wiggle_rate = np.random.normal(self.reset_value, scale=self.scale)
         else:
@@ -85,13 +102,17 @@ class RandomWiggleRateAdjustor(Updater):
 
 
 class AcceptanceRateWiggleRateAdjustor(Updater):
+    """Adjust wiggle rate based on acceptance rate bounds."""
+
     def __init__(self, lower_bound: float = 0.2, upper_bound: float = 0.5, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.lower_bound = lower_bound
         self.upper_bound = upper_bound
 
     def update(self, state: LatticeState) -> float:
-        acceptance_rate = state.accepted_x / state.lattice.particles.size
+        """Adjust wiggle rate based on current acceptance rate."""
+        particles_size = state.lattice.particles.size if state.lattice.particles is not None else 1
+        acceptance_rate = state.accepted_x / particles_size
         if acceptance_rate > self.upper_bound:
             state.wiggle_rate *= 1.1
         elif acceptance_rate < self.lower_bound:
@@ -100,12 +121,15 @@ class AcceptanceRateWiggleRateAdjustor(Updater):
 
 
 class DerivativeWiggleRateAdjustor(Updater):
+    """Adjust wiggle rate based on energy derivative trends."""
+
     def __init__(self, order_parameters_history: OrderParametersHistory, how_many: int, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.how_many = how_many
         self.order_parameters_history = order_parameters_history
 
     def update(self, state):
+        """Adjust wiggle rate based on energy derivative analysis."""
         m_e = np.array([m.mean() for m in np.split(self.order_parameters_history.order_parameters['energy'][-self.how_many:], 4)])
         m_r = np.array([m.mean() for m in np.split(self.order_parameters_history.stats['wiggle_rate'][-self.how_many:], 4)])
         m_r[np.where(m_r == 0)] = np.random.normal(scale=0.001)
@@ -122,9 +146,12 @@ class DerivativeWiggleRateAdjustor(Updater):
 
 
 class CallbackUpdater(Updater):
+    """Execute a custom callback function during simulation updates."""
+
     def __init__(self, callback, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.callback = callback
 
     def update(self, state):
+        """Execute the registered callback function."""
         return self.callback(state)

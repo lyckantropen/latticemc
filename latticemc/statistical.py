@@ -1,3 +1,5 @@
+"""Statistical analysis functions for simulation data."""
+
 import numba as nb
 import numpy as np
 from jaxtyping import Float32
@@ -6,7 +8,7 @@ from jaxtyping import Float32
 @nb.njit(nb.float32(nb.float32[:]), cache=True)
 def fluctuation(values: Float32[np.ndarray, "n"]) -> np.float32:
     """
-    Calculate the bootstrap variance (fluctuation) of one-dimensional array
+    Calculate the bootstrap variance (fluctuation) of one-dimensional array.
 
     This function estimates the variance using bootstrap resampling:
     - For each bootstrap iteration, it randomly samples (with replacement)

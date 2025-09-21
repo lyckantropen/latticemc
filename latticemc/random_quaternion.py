@@ -1,3 +1,5 @@
+"""Random quaternion generation functions for orientation sampling."""
+
 import numba as nb
 import numpy as np
 from jaxtyping import Float32

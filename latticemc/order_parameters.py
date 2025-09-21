@@ -1,3 +1,5 @@
+"""Order parameter calculations for liquid crystal lattice simulations."""
+
 from typing import Tuple
 
 import numba as nb
@@ -10,6 +12,13 @@ from .tensor_tools import SQRT2, SQRT6, SQRT16, dot10, ten6_to_mat
 
 @nb.njit(nb.int32(nb.float32), cache=True)
 def biaxial_ordering(lam: float) -> int:
+    """
+    Determine biaxial ordering type based on lambda parameter.
+
+    - `-1` for x,y,z
+    - `1` for z,x,y
+    - `0` for y,z,x
+    """
     if lam < (SQRT16 - 1e-3):
         return 1
     if lam > (SQRT16 + 1e-3):

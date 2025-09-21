@@ -1,8 +1,11 @@
+"""Data structures and type definitions for lattice Monte Carlo simulations."""
+
 from dataclasses import dataclass, field
 from decimal import Decimal
+from typing import Optional
 
 import numpy as np
-from jaxtyping import Float32, Int32, Shaped
+from jaxtyping import Shaped
 
 # per-particle degrees of freedom
 particle_dof = np.dtype([
@@ -65,8 +68,8 @@ class Lattice:
     X: int
     Y: int
     Z: int
-    particles: Shaped[np.ndarray, "W H L"] = field(default=None)
-    properties: Shaped[np.ndarray, "W H L"] = field(default=None)
+    particles: Optional[Shaped[np.ndarray, "W H L"]] = field(default=None)
+    properties: Optional[Shaped[np.ndarray, "W H L"]] = field(default=None)
 
     def __post_init__(self):
         self.particles = np.zeros((self.X, self.Y, self.Z), dtype=particle_dof)

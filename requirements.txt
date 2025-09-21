@@ -1,4 +1,4 @@
 tox
 wheel
 tox-wheel
--e .[tests]
+-e .[tests,notebook]
