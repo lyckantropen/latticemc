@@ -85,11 +85,16 @@ class SimulationProcess(mp.Process):
 
     def run(self) -> None:
         """Execute the simulation process."""
+
+        # self.report_order_parameters_every doesn't mean that there is fewer samples in history
+        # only that it is copied to the governing thread at most that often
         order_parameters_broadcaster = CallbackUpdater(
             callback=lambda _: self._broadcast_order_parameters(),
             how_often=self.report_order_parameters_every,
             since_when=self.report_order_parameters_every
         )
+        # self.report_fluctuations_every doesn't mean that there is fewer samples in history
+        # only that it is copied to the governing thread at most that often
         fluctuations_broadcaster = CallbackUpdater(
             callback=lambda _: self._broadcast_fluctuations(),
             how_often=self.report_fluctuations_every,

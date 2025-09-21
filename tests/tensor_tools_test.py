@@ -61,7 +61,7 @@ def test_dot6():
     q = t20 + np.sqrt(2) * 0.3 * t22
     qi = t20i + np.sqrt(2) * 0.3 * t22i
 
-    assert np.isclose(np.tensordot(q, qi), dot6(q_6, qi_6))
+    assert np.isclose(np.tensordot(q, qi), dot6(q_6.astype(np.float32), qi_6.astype(np.float32)))
 
 
 def test_quaternion_to_orientation():
