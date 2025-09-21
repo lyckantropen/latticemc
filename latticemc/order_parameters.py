@@ -11,7 +11,7 @@ from .tensor_tools import SQRT2, SQRT6, SQRT16, dot10, ten6_to_mat
 
 
 @nb.njit(nb.int32(nb.float32), cache=True)
-def biaxial_ordering(lam: float) -> int:
+def biaxial_ordering(lam: np.float32) -> int:
     """
     Determine biaxial ordering type based on lambda parameter.
 
