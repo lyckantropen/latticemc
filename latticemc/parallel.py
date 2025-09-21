@@ -85,7 +85,6 @@ class SimulationProcess(mp.Process):
 
     def run(self) -> None:
         """Execute the simulation process."""
-
         # self.report_order_parameters_every doesn't mean that there is fewer samples in history
         # only that it is copied to the governing thread at most that often
         order_parameters_broadcaster = CallbackUpdater(
