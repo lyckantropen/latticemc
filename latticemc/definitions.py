@@ -104,6 +104,16 @@ class LatticeState:
     lattice_averages: Shaped[np.ndarray, "..."] = field(default_factory=lambda: np.empty(
         0, dtype=particle_props))  # instantaneous order parameters
 
+    def update_from(self, other: "LatticeState") -> None:
+        """Update this state from another state (used in parallel tempering)."""
+        # parameters stay the same
+        self.lattice = other.lattice
+        self.iterations = other.iterations
+        self.wiggle_rate = other.wiggle_rate
+        self.accepted_x = other.accepted_x
+        self.accepted_p = other.accepted_p
+        self.lattice_averages = other.lattice_averages
+
 
 @dataclass
 class OrderParametersHistory:

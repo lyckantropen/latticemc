@@ -105,6 +105,9 @@ def _do_orientation_sweep(lattice: Lattice,
     (lamba) and 'tau'. The orientation is updated using a random
     walk with radius 'wiggle_rate'.
     """
+    assert lattice.properties is not None
+    assert lattice.particles is not None
+
     accepted_x: int = 0
     accepted_p: int = 0
     for _i in indexes:
@@ -149,12 +152,16 @@ def _do_orientation_sweep(lattice: Lattice,
 @nb.jit(forceobj=True, nopython=False, cache=True)
 def _get_lattice_averages(lattice: Lattice) -> Shaped[np.ndarray, "1"]:
     """Calculate state average of per-particle properties as specified in the 'particle' data type."""
+    assert lattice.properties is not None
+    assert lattice.particles is not None
+
     avg = np.zeros(1, dtype=particle_props)
     avg['t20'] = lattice.properties['t20'].mean(axis=(0, 1, 2))
     avg['t22'] = lattice.properties['t22'].mean(axis=(0, 1, 2))
     avg['t32'] = lattice.properties['t32'].mean(axis=(0, 1, 2))
     # parity is calculated from the DoF, but needs to be promoted to float
-    avg['p'] = lattice.particles['p'].astype(np.float32).mean()
+    # calulcated as abs because it can flip between +1 and -1
+    avg['p'] = np.abs(lattice.particles['p'].astype(np.float32).mean())
     avg['energy'] = lattice.properties['energy'].mean()
     return avg
 
@@ -170,10 +177,11 @@ def do_lattice_state_update(state: LatticeState) -> None:
     state averages of per-particle properties.
     """
     # update particles at random
+    assert state.lattice.properties is not None
+    assert state.lattice.particles is not None
+
     indexes = (state.lattice.properties['index']
-               .reshape(-1, 3)[np.random.randint(0,
-                                                 state.lattice.particles.size,
-                                                 state.lattice.particles.size)])
+               .reshape(-1, 3)[np.random.randint(0, state.lattice.particles.size, state.lattice.particles.size)])
     accepted_x, accepted_p = _do_orientation_sweep(state.lattice,
                                                    indexes,
                                                    np.float32(state.parameters.temperature),
