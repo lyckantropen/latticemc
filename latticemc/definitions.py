@@ -269,8 +269,13 @@ class OrderParametersHistory:
 
     @order_parameters.setter
     def order_parameters(self, value: np.ndarray) -> None:
-        """Set order parameters array."""
+        """Set order parameters array and sync to list."""
         self._order_parameters = value
+        # Clear and repopulate the list to maintain consistency
+        self.order_parameters_list.clear()
+        if len(value) > 0:
+            for item in value:
+                self.order_parameters_list.append(item)
 
     # CAUTION: slow
     @property
@@ -282,8 +287,13 @@ class OrderParametersHistory:
 
     @fluctuations.setter
     def fluctuations(self, value: np.ndarray) -> None:
-        """Set fluctuations array."""
+        """Set fluctuations array and sync to list."""
         self._fluctuations = value
+        # Clear and repopulate the list to maintain consistency
+        self.fluctuations_list.clear()
+        if len(value) > 0:
+            for item in value:
+                self.fluctuations_list.append(item)
 
     # CAUTION: slow
     @property
@@ -295,8 +305,13 @@ class OrderParametersHistory:
 
     @stats.setter
     def stats(self, value: np.ndarray) -> None:
-        """Set stats array."""
+        """Set stats array and sync to list."""
         self._stats = value
+        # Clear and repopulate the list to maintain consistency
+        self.stats_list.clear()
+        if len(value) > 0:
+            for item in value:
+                self.stats_list.append(item)
 
     def to_dict(self) -> dict:
         """Convert latest order parameters and fluctuations to dictionary for JSON serialization."""

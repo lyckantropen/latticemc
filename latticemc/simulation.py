@@ -147,14 +147,14 @@ class Simulation:
 
         # Core data collection updaters
         order_parameters_calculator = OrderParametersCalculator(
-            self.local_history, how_often=1, since_when=0
+            self.local_history, how_often=1, since_when=0  # this has to be every step
         )
         logger.debug("Added OrderParametersCalculator")
 
         fluctuations_calculator = FluctuationsCalculator(
             self.local_history,
             window=self.fluctuations_window,
-            how_often=self.fluctuations_window // 10,
+            how_often=self.fluctuations_window // 10,  # potentially O(n^2) so less often
             since_when=self.fluctuations_window
         )
         logger.debug(f"Added FluctuationsCalculator with window={self.fluctuations_window}")
