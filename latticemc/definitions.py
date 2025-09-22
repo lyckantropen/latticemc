@@ -312,13 +312,13 @@ class OrderParametersHistory:
         # Add latest order parameters
         if len(self.order_parameters_list) > 0:
             latest_op = self.order_parameters_list[-1]
-            for field_name in latest_op.dtype.fields.keys():
+            for field_name in latest_op.dtype.fields.keys():  # type: ignore[union-attr]
                 result['latest_order_parameters'][field_name] = float(latest_op[field_name])  # type: ignore[assignment]
 
         # Add latest fluctuations
         if len(self.fluctuations_list) > 0:
             latest_fluct = self.fluctuations_list[-1]
-            for field_name in latest_fluct.dtype.fields.keys():
+            for field_name in latest_fluct.dtype.fields.keys():  # type: ignore[union-attr]
                 result['latest_fluctuations'][field_name] = float(latest_fluct[field_name])  # type: ignore[assignment]
 
         return result
