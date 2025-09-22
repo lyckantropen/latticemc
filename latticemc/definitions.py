@@ -3,7 +3,7 @@
 import logging
 from dataclasses import dataclass, field
 from decimal import Decimal
-from typing import Optional
+from typing import Any, Dict, Optional
 
 import numpy as np
 from jaxtyping import Shaped
@@ -82,7 +82,7 @@ class Lattice:
 
     def to_npz_dict(self) -> dict:
         """Convert lattice data to dictionary for NPZ file saving."""
-        data = {
+        data: Dict[str, Any] = {
             'lattice_X': self.X,
             'lattice_Y': self.Y,
             'lattice_Z': self.Z
@@ -95,9 +95,9 @@ class Lattice:
 
     def from_npz_dict(self, data: dict) -> None:
         """Load lattice data from NPZ dictionary."""
-        self.X = int(data['lattice_X'])
-        self.Y = int(data['lattice_Y'])
-        self.Z = int(data['lattice_Z'])
+        self.X = int(data['lattice_X'].item()) if hasattr(data['lattice_X'], 'item') else int(data['lattice_X'])
+        self.Y = int(data['lattice_Y'].item()) if hasattr(data['lattice_Y'], 'item') else int(data['lattice_Y'])
+        self.Z = int(data['lattice_Z'].item()) if hasattr(data['lattice_Z'], 'item') else int(data['lattice_Z'])
         if 'particles' in data:
             self.particles = data['particles']
         if 'properties' in data:
@@ -260,14 +260,14 @@ class OrderParametersHistory:
             latest_op = self.order_parameters[-1]
             if self.order_parameters.dtype.names:
                 for field_name in self.order_parameters.dtype.names:
-                    result['latest_order_parameters'][field_name] = float(latest_op[field_name])
+                    result['latest_order_parameters'][field_name] = float(latest_op[field_name])  # type: ignore[assignment]
 
         # Add latest fluctuations
         if len(self.fluctuations) > 0:
             latest_fluct = self.fluctuations[-1]
             if self.fluctuations.dtype.names:
                 for field_name in self.fluctuations.dtype.names:
-                    result['latest_fluctuations'][field_name] = float(latest_fluct[field_name])
+                    result['latest_fluctuations'][field_name] = float(latest_fluct[field_name])  # type: ignore[assignment]
 
         return result
 

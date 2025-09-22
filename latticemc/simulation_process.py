@@ -119,6 +119,9 @@ class SimulationProcess(Simulation, mp.Process):
         """Set up logging for this simulation process."""
         import logging
 
+        # Ensure working_folder is not None (method should only be called when it's not None)
+        assert self.working_folder is not None, "working_folder must be set before calling _setup_process_logging"
+
         # Create process-specific log file
         log_file = self.working_folder / "logs" / "simulation.log"
 

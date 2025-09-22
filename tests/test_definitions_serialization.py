@@ -7,14 +7,7 @@ from pathlib import Path
 import numpy as np
 from pyfakefs.fake_filesystem_unittest import TestCase
 
-from latticemc.definitions import (
-    DefiningParameters,
-    Lattice,
-    LatticeState,
-    OrderParametersHistory,
-    gathered_order_parameters,
-    particle_props
-)
+from latticemc.definitions import DefiningParameters, Lattice, LatticeState, OrderParametersHistory, gathered_order_parameters, particle_props
 from latticemc.lattice_tools import initialize_partially_ordered
 from latticemc.random_quaternion import random_quaternion
 
