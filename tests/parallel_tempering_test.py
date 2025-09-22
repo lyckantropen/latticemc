@@ -273,6 +273,13 @@ class TestParallelTempering:
         assert not runner.alive(), "Runner should have stopped due to process crash"
         assert not runner.finished_gracefully(), "Runner should not have finished gracefully after process crash"
 
+        # Check that a thread exception was captured
+        assert runner.has_thread_exception(), "Runner should have captured the crash exception"
+        thread_exception = runner.get_thread_exception()
+        assert thread_exception is not None, "Thread exception should not be None"
+        assert isinstance(thread_exception, RuntimeError), "Thread exception should be RuntimeError"
+        assert "died unexpectedly" in str(thread_exception), "Exception should mention process death"
+
     def test_ping_mechanism_during_normal_operation(self):
         """Test that ping messages are sent and received during normal operation."""
         states = self._create_test_states([1.0, 2.0], lattice_size=2)

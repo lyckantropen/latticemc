@@ -146,6 +146,9 @@ class SimulationRunner(threading.Thread):
         self._process_errors: List[Exception] = []
         self._crashed_processes: List[int] = []
 
+        # Track thread-level exceptions (for communicating back to main thread)
+        self._thread_exception: Optional[Exception] = None
+
         # Track process health via ping messages
         self._last_ping_time: Dict[int, float] = {}
         self._ping_timeout = 120.0  # seconds without ping before considering process dead
@@ -391,8 +394,9 @@ class SimulationRunner(threading.Thread):
                     last_crash_check_time = current_time
                 except RuntimeError as e:
                     logger.error(f'SimulationRunner: Stopping due to error: {e}')
+                    self._thread_exception = e
                     self.stop()
-                    raise e
+                    break  # Exit the main loop instead of raising
 
             # Perform parallel tempering if enabled and there are replicas ready
             if self.parallel_tempering_enabled:
@@ -595,6 +599,14 @@ class SimulationRunner(threading.Thread):
         self._last_alive_result = self._starting or bool([sim for sim in self.simulations if sim.is_alive()])
         return self._last_alive_result
 
+    def has_thread_exception(self) -> bool:
+        """Check if the SimulationRunner thread encountered an exception."""
+        return self._thread_exception is not None
+
+    def get_thread_exception(self) -> Optional[Exception]:
+        """Get the exception that occurred in the SimulationRunner thread, if any."""
+        return self._thread_exception
+
     def finished_gracefully(self) -> bool:
         """
         Check whether all simulation processes finished gracefully.
@@ -614,6 +626,11 @@ class SimulationRunner(threading.Thread):
         if self.alive():
             alive_processes = [i for i, sim in enumerate(self.simulations) if sim.is_alive()]
             print(f"Simulation not finished: {len(alive_processes)} process(es) still running: {alive_processes}")
+            return False
+
+        # Check if there was a thread-level exception
+        if self.has_thread_exception():
+            print(f"Simulation did not finish gracefully due to thread exception: {self._thread_exception}")
             return False
 
         # Check if all processes finished with exit code 0
