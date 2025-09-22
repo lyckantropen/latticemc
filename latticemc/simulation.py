@@ -116,13 +116,6 @@ class Simulation:
                         current_energy = self.local_history.order_parameters_list[-1]['energy']
                         self.progress_bar.set_description(f"Energy: {current_energy:.6f}")
 
-                # Log progress periodically (fallback when no progress bar)
-                elif (step + 1) % 1000 == 0:
-                    logger.debug(f"Completed {step + 1}/{self.cycles} steps")
-                    if len(self.local_history.order_parameters_list) > 0:
-                        current_energy = self.local_history.order_parameters_list[-1]['energy']
-                        logger.debug(f"Current energy: {current_energy:.6f}")
-
         except Exception as e:
             logger.error(f"Simulation failed at step {self.current_step}: {e}")
             self._handle_simulation_error(e)
@@ -161,7 +154,7 @@ class Simulation:
         fluctuations_calculator = FluctuationsCalculator(
             self.local_history,
             window=self.fluctuations_window,
-            how_often=1,
+            how_often=self.fluctuations_window // 10,
             since_when=self.fluctuations_window
         )
         logger.debug(f"Added FluctuationsCalculator with window={self.fluctuations_window}")

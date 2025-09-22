@@ -300,7 +300,6 @@ class OrderParametersHistory:
 
     def to_dict(self) -> dict:
         """Convert latest order parameters and fluctuations to dictionary for JSON serialization."""
-
         result = {
             'latest_order_parameters': {},
             'latest_fluctuations': {},

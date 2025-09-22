@@ -76,9 +76,10 @@ class FluctuationsCalculator(Updater):
         if gathered_order_parameters.fields is not None:
             # Get current order parameters array for fluctuation calculation
             order_params_array = self.order_parameters_history._get_order_parameters_array()
+            window = min(self.window, len(self.order_parameters_history.order_parameters))
             for name in gathered_order_parameters.fields.keys():
                 particles_size = state.lattice.particles.size if state.lattice.particles is not None else 1
-                fluct = particles_size * fluctuation(order_params_array[name][-self.window:])
+                fluct = particles_size * fluctuation(order_params_array[name][-window:])
                 fluctuations[name] = fluct
 
         self.order_parameters_history.append_fluctuations(fluctuations)

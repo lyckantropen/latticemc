@@ -4,6 +4,7 @@ import json
 import logging
 import multiprocessing as mp
 import pathlib
+import queue
 import threading
 import time
 from collections import defaultdict
@@ -147,6 +148,11 @@ class SimulationRunner(threading.Thread):
         # Track process health via ping messages
         self._last_ping_time: Dict[int, float] = {}
         self._ping_timeout = 120.0  # seconds without ping before considering process dead
+
+        # Caching for alive() checks to reduce process polling overhead
+        self._last_alive_check_time = 0.0
+        self._last_alive_result = True
+        self._alive_check_interval = 0.01  # Cache alive() result for 10ms
 
         # Progress bar support
         self.progress_bar_mode = progress_bar_mode
@@ -305,9 +311,14 @@ class SimulationRunner(threading.Thread):
 
         # main message processing loop
         pt_ready: List[Tuple[int, ParallelTemperingParameters]] = []
+        last_crash_check_time = time.time()
+        crash_check_interval = 1.0  # Check for crashed processes every 1 second instead of every loop
+
         while self.alive():
-            while not q.empty():
-                message_type, index, msg = q.get()
+            # Process messages with timeout to avoid busy-waiting
+            try:
+                # Use blocking get with timeout instead of busy-waiting on empty()
+                message_type, index, msg = q.get(timeout=0.01)  # Block for up to 10ms
 
                 logger.debug(f'SimulationRunner: Received {message_type}, index={index}')
 
@@ -367,13 +378,20 @@ class SimulationRunner(threading.Thread):
                     # Update progress bars
                     self._update_progress_bars()
 
-            # Check for crashed processes and raise exception if any are found
-            try:
-                self._check_for_crashed_processes()
-            except RuntimeError as e:
-                logger.error(f'SimulationRunner: Stopping due to error: {e}')
-                self.stop()
-                raise e
+            except queue.Empty:
+                # No messages available - this is normal, continue to next iteration
+                pass
+
+            # Check for crashed processes periodically, not every loop iteration
+            current_time = time.time()
+            if current_time - last_crash_check_time >= crash_check_interval:
+                try:
+                    self._check_for_crashed_processes()
+                    last_crash_check_time = current_time
+                except RuntimeError as e:
+                    logger.error(f'SimulationRunner: Stopping due to error: {e}')
+                    self.stop()
+                    raise e
 
             # Perform parallel tempering if enabled and there are replicas ready
             if self.parallel_tempering_enabled:
@@ -561,8 +579,17 @@ class SimulationRunner(threading.Thread):
         self._cleanup_progress_bars()
 
     def alive(self) -> bool:
-        """Check if any simulation processes are still running."""
-        return self._starting or bool([sim for sim in self.simulations if sim.is_alive()])
+        """Check if any simulation processes are still running with caching to reduce overhead."""
+        current_time = time.time()
+
+        # Use cached result if checked recently
+        if current_time - self._last_alive_check_time < self._alive_check_interval:
+            return self._last_alive_result
+
+        # Update cache
+        self._last_alive_check_time = current_time
+        self._last_alive_result = self._starting or bool([sim for sim in self.simulations if sim.is_alive()])
+        return self._last_alive_result
 
     def finished_gracefully(self) -> bool:
         """
@@ -785,7 +812,7 @@ class SimulationRunner(threading.Thread):
             paths['order_parameters'].parent.mkdir(parents=True, exist_ok=True)
 
             # Get order parameters history for this parameter set
-            history = self.order_parameters_history.get(parameters)
+            history = self.order_parameters_history[parameters]
             if history and len(history.order_parameters_list) > 0:
                 history.save_to_npz(order_parameters_path=str(paths['order_parameters']))
                 logger.debug(f"Saved order parameters for {parameters} to {paths['order_parameters']}")
@@ -807,7 +834,7 @@ class SimulationRunner(threading.Thread):
             paths['fluctuations'].parent.mkdir(parents=True, exist_ok=True)
 
             # Get fluctuations history for this parameter set
-            history = self.order_parameters_history.get(parameters)
+            history = self.order_parameters_history[parameters]
             if history and len(history.fluctuations_list) > 0:
                 history.save_to_npz(fluctuations_path=str(paths['fluctuations']))
                 logger.debug(f"Saved fluctuations for {parameters} to {paths['fluctuations']}")
