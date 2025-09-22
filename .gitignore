@@ -17,4 +17,6 @@ build
 dist
 install
 runs
+simulation_output
+parallel_tempering_output
 tensorboard_logs

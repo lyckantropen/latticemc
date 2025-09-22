@@ -221,11 +221,11 @@ class TestParallelTempering:
         runner = SimulationRunner(
             initial_states=states,
             order_parameters_history=order_parameters_history,
-            cycles=100,  # Short simulation to finish quickly
-            report_order_parameters_every=50,
-            report_fluctuations_every=50,
-            report_state_every=50,
-            parallel_tempering_interval=10  # Frequent exchanges to test barrier edge cases
+            cycles=20,  # Very short simulation (reduced for disabled Numba)
+            report_order_parameters_every=10,
+            report_fluctuations_every=10,
+            report_state_every=10,
+            parallel_tempering_interval=5  # Frequent exchanges to test barrier edge cases
         )
 
         # Verify barrier was created (prerequisite for this test)
@@ -252,8 +252,8 @@ class TestParallelTempering:
         runner = SimulationRunner(
             initial_states=states,
             order_parameters_history=order_parameters_history,
-            cycles=1000,  # Longer simulation to allow time for crash detection
-            parallel_tempering_interval=10
+            cycles=50,  # Shorter simulation (reduced for disabled Numba)
+            parallel_tempering_interval=5
         )
 
         # Start runner
@@ -281,8 +281,8 @@ class TestParallelTempering:
         runner = SimulationRunner(
             initial_states=states,
             order_parameters_history=order_parameters_history,
-            cycles=2000,  # Enough cycles to trigger ping messages
-            parallel_tempering_interval=50
+            cycles=100,  # Reduced cycles for disabled Numba while still allowing ping messages
+            parallel_tempering_interval=20
         )
 
         # Start runner

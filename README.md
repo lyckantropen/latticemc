@@ -112,6 +112,241 @@ pip install -e .[notebook]
 jupyter notebook example.ipynb
 ```
 
+## Working Folder & Data Persistence
+
+The latticemc package provides automatic data saving and recovery functionality through working folders. When you specify a `working_folder` parameter, the simulation automatically saves its state and results, enabling:
+
+- **Automatic Recovery**: Resume interrupted simulations from the last saved state
+- **Data Persistence**: All simulation results saved in organized folder structure
+- **Post-Processing**: Easy access to saved data for analysis and visualization
+- **Process Isolation**: In parallel tempering, each temperature replica gets its own subfolder
+
+### Folder Structure
+
+When using working folders, the following directory structure is automatically created:
+
+```text
+working_folder/
+├── logs/                           # Simulation logs
+│   ├── simulation.log              # Single simulation logs (with parameter ID)
+│   ├── parallel_tempering_main.log # Main process logs (parallel tempering)
+│   └── process_XXX/logs/           # Individual process logs (parallel tempering)
+│       └── simulation.log
+├── data/                           # Simulation results
+│   ├── order_parameters.npz       # Time series of order parameters
+│   └── fluctuations.npz           # Time series of fluctuations  
+├── states/                         # Simulation state snapshots
+│   ├── lattice_state.npz          # Complete lattice configuration
+│   └── simulation_state.pkl       # Simulation metadata and progress
+├── summary.json                    # Human-readable simulation summary
+└── simulation_in_progress.marker   # Progress marker (deleted on completion)
+```
+
+#### For Parallel Tempering with SimulationRunner
+
+When using `SimulationRunner` for parallel tempering, the working folder
+contains both process-based and parameter-based organization:
+
+```text
+parallel_tempering_output/
+├── logs/
+│   └── parallel_tempering_main.log # Main coordination process logs
+├── tensorboard/                    # TensorBoard logs (when enabled)
+│   └── ... (event files for real-time monitoring)
+├── process_000/                    # Individual process T₁ replica
+│   ├── logs/
+│   │   └── simulation.log          # Process-specific logs with T, λ, τ values
+│   ├── data/
+│   │   ├── order_parameters.npz
+│   │   └── fluctuations.npz
+│   ├── states/
+│   │   ├── lattice_state.npz
+│   │   └── simulation_state.joblib
+│   └── summary.json
+├── process_001/                    # Individual process T₂ replica
+│   └── ... (same structure)
+├── process_XXX/                    # Additional process replicas
+│   └── ... (same structure)
+└── parameters/                     # Parameter-based organization (NEW)
+    ├── T0.30_lam0.35_tau1.00/      # Data organized by parameter values
+    │   ├── data/
+    │   │   ├── order_parameters.npz # Consolidated data from all processes with these parameters
+    │   │   └── fluctuations.npz     # Merged across parallel tempering exchanges
+    │   ├── states/
+    │   │   └── latest_state.npz     # Latest state for this parameter set
+    │   └── summary.json             # Parameter-specific summary
+    ├── T0.35_lam0.35_tau1.00/       # Next parameter set
+    │   └── ... (same structure)
+    └── T1.65_lam0.35_tau1.00/       # Additional parameter sets
+        └── ... (same structure)
+```
+
+#### Understanding the Dual Organization
+
+The `SimulationRunner` creates two complementary folder structures:
+
+1. **Process-based folders** (`process_XXX/`):
+   - Each individual simulation process gets its own folder
+   - Contains the raw simulation data as it runs
+   - Useful for monitoring individual process progress
+   - Required for simulation recovery and checkpointing
+
+2. **Parameter-based folders** (`parameters/T_X_lam_Y_tau_Z/`):
+   - Data organized by the actual parameter values (T, λ, τ)
+   - Consolidates results across parallel tempering exchanges
+   - In parallel tempering, the same parameter set may run on different processes over time
+   - Contains the final, merged data for each unique parameter combination
+   - **This is typically what you want for analysis and post-processing**
+
+The parameter-based organization is especially important for parallel tempering
+because temperature exchanges mean that process 0 might run different
+temperatures over time, but you want all data for temperature T=0.85 in one
+place regardless of which process computed it.
+
+### Saved Data Format
+
+#### Order Parameters (`order_parameters.npz`)
+
+Numpy archive containing time series of physical observables:
+
+- `energy`: Total system energy per particle
+- `q0`: Scalar order parameter (S parameter)
+- `q2`: Tensor order parameter  
+- `p`: Nematic order parameter
+- `d322`: Biaxial order parameter
+- `w`: Octupolar order parameter
+
+#### Fluctuations (`fluctuations.npz`)
+
+Numpy archive containing variance measures:
+
+- Same keys as order parameters
+- Calculated over sliding window (default 100 steps)
+- Related to physical susceptibilities
+
+#### Lattice State (`lattice_state.npz`)
+
+Complete lattice configuration snapshot:
+
+- `particles`: Quaternion orientations for each lattice site
+- `properties`: Derived particle properties
+- `lattice_X`, `lattice_Y`, `lattice_Z`: Lattice dimensions
+- `current_step`: Simulation progress
+- `relevant_history_length`: Valid data length
+
+#### Simulation State (`simulation_state.pkl`)
+
+Metadata and simulation progress:
+
+- Current Monte Carlo step
+- Simulation parameters (T, λ, τ)
+- Fluctuations window size
+- Save interval settings
+- Relevant history tracking
+
+#### Summary (`summary.json`)
+
+Human-readable overview:
+
+```json
+{
+  "current_step": 1000,
+  "total_cycles": 1000,
+  "parameters": {
+    "temperature": 0.9,
+    "lam": 0.3,
+    "tau": 1.0
+  },
+  "latest_order_parameters": {
+    "energy": -7.845,
+    "q0": 0.432,
+    "p": 0.156
+  },
+  "latest_fluctuations": {
+    "energy": 0.023,
+    "q0": 0.0089
+  }
+}
+```
+
+### Log Files
+
+All simulation logs are saved with process identification:
+
+#### Single Simulation Logs
+
+- Filename: `T{temp}_lam{lam}_tau{tau}.log`
+- Format: `timestamp - T0.9_lam0.3_tau1.0 - module - level - message`
+
+#### Parallel Tempering Logs
+
+- Main process: `parallel_tempering_main.log`
+- Individual processes: `process_XXX/logs/simulation.log`
+- Format: `timestamp - P000_T1.0_λ1.0_τ0.1 - module - level - message`
+
+### Data Access Recommendations
+
+**For Single Simulations:**
+
+- Use the standard structure: `data/`, `states/`, `logs/`, `summary.json`
+
+**For Parallel Tempering Analysis:**
+
+- **Use `parameters/T_X_lam_Y_tau_Z/` folders** for temperature-specific analysis
+- These contain consolidated data for each parameter set across all exchanges
+- Example: All data for T=0.85 will be in `parameters/T0.85_lam0.35_tau1.00/`
+
+**For Debugging Parallel Tempering:**
+
+- Use `process_XXX/` folders to examine individual process behavior
+- Check `logs/parallel_tempering_main.log` for coordination and exchange information
+
+**For Data Loading:**
+
+```python
+from pathlib import Path
+import numpy as np
+
+# Load parameter-specific data (recommended for analysis)
+param_folder = Path("working_folder/parameters/T0.85_lam0.35_tau1.00")
+order_params = np.load(param_folder / "data" / "order_parameters.npz")
+
+# Load process-specific data (for debugging)
+process_folder = Path("working_folder/process_000")  
+process_data = np.load(process_folder / "data" / "order_parameters.npz")
+```
+
+### Recovery and Continuation
+
+The `simulation_in_progress.marker` file indicates an incomplete simulation. If `auto_recover=True`:
+
+1. **Automatic Detection**: Simulation detects existing marker on startup
+2. **State Recovery**: Loads lattice configuration, history, and progress
+3. **Seamless Continuation**: Resumes from the exact step where it stopped
+4. **Marker Cleanup**: Removes marker file upon successful completion
+
+### Loading Saved Data
+
+All examples demonstrate how to load and analyze saved data:
+
+```python
+import numpy as np
+import json
+from pathlib import Path
+
+# Load order parameters
+data = np.load("working_folder/data/order_parameters.npz")
+order_params = data['order_parameters']
+
+# Load summary
+with open("working_folder/summary.json") as f:
+    summary = json.load(f)
+
+# Load lattice state for visualization
+state_data = np.load("working_folder/states/lattice_state.npz")
+particles = state_data['particles']
+```
+
 ## References
 
 - [Trojanowski, Karol, Michaƚ Cieśla, and Lech Longa. "Modulated nematic

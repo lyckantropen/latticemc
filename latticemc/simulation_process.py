@@ -47,16 +47,18 @@ class SimulationProcess(Simulation, mp.Process):
                  index: int,
                  queue: mp.Queue,
                  initial_state: LatticeState,
-                 cycles: int,
+                 *args,
                  report_order_parameters_every: int = 1000,
                  report_fluctuations_every: int = 1000,
                  report_state_every: int = 1000,
-                 fluctuations_window: int = 1000,
-                 per_state_updaters: Optional[List[Updater]] = None,
                  parallel_tempering_interval: Optional[int] = None,
-                 exchange_barrier=None
-                 ) -> None:
-        Simulation.__init__(self, initial_state, cycles, fluctuations_window, per_state_updaters, progress_bar=None)
+                 exchange_barrier=None,
+                 **kwargs) -> None:
+        # Disable progress bar for multiprocessing
+        kwargs['progress_bar'] = None
+
+        # Initialize Simulation and Process
+        Simulation.__init__(self, initial_state, *args, **kwargs)
         mp.Process.__init__(self)
 
         self.index = index
@@ -113,9 +115,42 @@ class SimulationProcess(Simulation, mp.Process):
 
         return updaters
 
+    def _setup_process_logging(self) -> None:
+        """Set up logging for this simulation process."""
+        import logging
+
+        # Create process-specific log file
+        log_file = self.working_folder / "logs" / "simulation.log"
+
+        # Set up file handler with UTF-8 encoding to handle Greek letters
+        file_handler = logging.FileHandler(log_file, mode='w', encoding='utf-8')
+        file_handler.setLevel(logging.DEBUG)
+
+        # Create formatter with process and temperature identification
+        temp = self.state.parameters.temperature
+        lam = self.state.parameters.lam
+        tau = self.state.parameters.tau
+        process_id = f"P{self.index:03d}_T{temp}_λ{lam}_τ{tau}"
+
+        formatter = logging.Formatter(
+            f'%(asctime)s - {process_id} - %(name)s - %(levelname)s - %(message)s'
+        )
+        file_handler.setFormatter(formatter)
+
+        # Get root logger and add our handler
+        root_logger = logging.getLogger()
+        root_logger.setLevel(logging.DEBUG)
+        root_logger.addHandler(file_handler)
+
+        logging.info(f"Process {self.index} logging set up (T={temp}, λ={lam}, τ={tau})")
+
     @override
     def run(self) -> None:
         """Execute the simulation process by calling the Simulation.run() method."""
+        # Set up process-specific logging if working folder is available
+        if self.working_folder is not None:
+            self._setup_process_logging()
+
         # Call the Simulation.run() method, not mp.Process.run()
         Simulation.run(self)
 
@@ -130,6 +165,9 @@ class SimulationProcess(Simulation, mp.Process):
         """Handle simulation completion by marking as finished and notifying queue."""
         # Mark as finished - this will prevent future barrier waits
         self.running.value = 0
+
+        # Call parent method to perform final save and cleanup
+        super()._simulation_finished()
 
         self.queue.put((MessageType.State, self.index, self.state))
         self.queue.put((MessageType.Finished, self.index, self.state.parameters))

@@ -56,32 +56,38 @@ class OrderParametersCalculator(Updater):
 
     def format_value(self, value):
         """Format order parameters for display."""
-        s = ','.join([f'{name}={value[name][0]:.5f}' for name in gathered_order_parameters.fields.keys()])
-        return 'averg: ' + s
+        if gathered_order_parameters.fields is not None:
+            s = ','.join([f'{name}={value[name][0]:.5f}' for name in gathered_order_parameters.fields.keys()])
+            return 'averg: ' + s
+        return 'averg: no fields'
 
 
 class FluctuationsCalculator(Updater):
     """Calculate fluctuations of order parameters over a sliding window."""
 
-    def __init__(self, order_parameters_history: OrderParametersHistory, *args, window=100, **kwargs):
+    def __init__(self, order_parameters_history: OrderParametersHistory, *args, window=1000, **kwargs):
         super().__init__(*args, **kwargs)
         self.order_parameters_history = order_parameters_history
+        self.window = window
 
     def update(self, state):
         """Calculate fluctuations for recent order parameters."""
         fluctuations = np.zeros(1, dtype=gathered_order_parameters)
-        for name in gathered_order_parameters.fields.keys():
-            particles_size = state.lattice.particles.size if state.lattice.particles is not None else 1
-            fluct = particles_size * fluctuation(self.order_parameters_history.order_parameters[name][-100:])
-            fluctuations[name] = fluct
+        if gathered_order_parameters.fields is not None:
+            for name in gathered_order_parameters.fields.keys():
+                particles_size = state.lattice.particles.size if state.lattice.particles is not None else 1
+                fluct = particles_size * fluctuation(self.order_parameters_history.order_parameters[name][-self.window:])
+                fluctuations[name] = fluct
 
         self.order_parameters_history.fluctuations = np.append(self.order_parameters_history.fluctuations, fluctuations)
         return fluctuations
 
     def format_value(self, value):
         """Format fluctuations for display."""
-        s = ','.join([f'{name}={value[name][0]:.5f}' for name in gathered_order_parameters.fields.keys()])
-        return 'fluct: ' + s
+        if gathered_order_parameters.fields is not None:
+            s = ','.join([f'{name}={value[name][0]:.5f}' for name in gathered_order_parameters.fields.keys()])
+            return 'fluct: ' + s
+        return 'fluct: no fields'
 
 
 class RandomWiggleRateAdjustor(Updater):

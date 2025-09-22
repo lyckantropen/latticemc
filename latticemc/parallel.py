@@ -1,14 +1,17 @@
 """Parallel processing and threading support for lattice simulations."""
 
+import json
 import logging
 import multiprocessing as mp
+import pathlib
 import threading
 import time
 from collections import defaultdict
 from decimal import Decimal
 from enum import Enum
-from typing import Dict, List, Optional, Tuple, cast, Any
+from typing import Any, Dict, List, Optional, Tuple, cast
 
+import joblib
 import numpy as np
 
 from .definitions import DefiningParameters, LatticeState, OrderParametersHistory
@@ -32,12 +35,29 @@ class SimulationRunner(threading.Thread):
 
     Args
     ----
-        initial_states: List of initial states for each simulation process
-        order_parameters_history: Dictionary to store results from each process
-        cycles: Number of Monte Carlo steps each process should perform
-        tensorboard_log_dir: Optional directory for TensorBoard logging
-        parallel_tempering_interval: Interval for parallel tempering exchanges
-        progress_bar_mode: Progress bar display mode (NONE, CONSOLE, or NOTEBOOK)
+        initial_states
+            List of initial states for each simulation process
+        order_parameters_history
+            Dictionary to store results from each process
+        cycles
+            Number of Monte Carlo steps each process should perform
+        parallel_tempering_interval
+            Interval for parallel tempering exchanges
+        progress_bar_mode
+            Progress bar display mode (NONE, CONSOLE, or NOTEBOOK)
+        working_folder
+            Optional path to folder for saving simulation states and logs.
+            Each process gets its own subfolder. If None, no saving
+            is performed. TensorBoard logs are automatically saved to
+            working_folder/tensorboard.
+        save_interval
+            How often to save simulation state and JSON summary (in
+            steps). Default 50. (This is for simulation-level saving, per-parameter
+            saving is done whenever new data is received, which is governed by
+            `report_order_parameters_every`, `report_fluctuations_every`, and
+            `report_state_every` in SimulationProcess.)
+        auto_recover
+            Whether to attempt recovery from saved state. Default False.
     """
 
     def __init__(self,
@@ -45,9 +65,11 @@ class SimulationRunner(threading.Thread):
                  order_parameters_history: Dict[DefiningParameters, OrderParametersHistory],
                  cycles: int,
                  *args,
-                 tensorboard_log_dir: Optional[str] = None,
                  parallel_tempering_interval: Optional[int] = None,
                  progress_bar_mode: ProgressBarMode = ProgressBarMode.CONSOLE,
+                 working_folder: Optional[str] = None,
+                 save_interval: int = 50,
+                 auto_recover: bool = False,
                  **kwargs) -> None:
         threading.Thread.__init__(self)
 
@@ -74,6 +96,11 @@ class SimulationRunner(threading.Thread):
         self.progress_bar_mode = progress_bar_mode
         self._progress_bars: Optional[Dict[str, Any]] = None
 
+        # Working folder support
+        self.working_folder = working_folder
+        self.save_interval = save_interval
+        self.auto_recover = auto_recover
+
         # for parallel tempering
         self._temperatures: List[Decimal] = [state.parameters.temperature for state in self.states]
         self._exchange_counter = 0  # Global counter for replica exchange rounds
@@ -89,7 +116,12 @@ class SimulationRunner(threading.Thread):
         # TensorBoard logging setup - always enabled
         self.tb_logger: Optional[TensorBoardLogger]
         try:
-            self.tb_logger = TensorBoardLogger(log_dir=tensorboard_log_dir)
+            # Use working_folder/tensorboard if working_folder is specified, otherwise use default
+            tb_log_dir = None
+            if self.working_folder is not None:
+                tb_log_dir = f"{self.working_folder}/tensorboard"
+
+            self.tb_logger = TensorBoardLogger(log_dir=tb_log_dir)
             logger.info(f"TensorBoard logging enabled, writing to {self.tb_logger.log_dir}")
         except Exception as e:
             logger.error(f"Failed to initialize TensorBoard logging: {e}")
@@ -97,6 +129,11 @@ class SimulationRunner(threading.Thread):
 
         # Start time for logging
         self._start_time: Optional[float] = None
+
+        # Data saving tracking - count received messages for each parameter set
+        self._order_parameters_received_count: Dict[DefiningParameters, int] = defaultdict(int)
+        self._fluctuations_received_count: Dict[DefiningParameters, int] = defaultdict(int)
+        self._states_received_count: Dict[DefiningParameters, int] = defaultdict(int)
 
     def _create_progress_bars(self) -> None:
         """Create progress bars based on the specified mode."""
@@ -189,10 +226,18 @@ class SimulationRunner(threading.Thread):
         # create and start all simulations
         self.simulations = []
         for i, state in enumerate(self.states):
-            # Prepare kwargs with barrier
+            # Prepare kwargs with barrier and working folder
             sim_kwargs = dict(self.kwargs)
             sim_kwargs['exchange_barrier'] = self._exchange_barrier
             sim_kwargs['cycles'] = self.cycles
+
+            # Add working folder support - each process gets its own subfolder
+            if self.working_folder is not None:
+                process_folder = f"{self.working_folder}/process_{i:03d}"
+                sim_kwargs['working_folder'] = process_folder
+                sim_kwargs['save_interval'] = self.save_interval
+                sim_kwargs['auto_recover'] = self.auto_recover
+
             sim = SimulationProcess(i, q, state, *self.args, **sim_kwargs)
             sim.start()
             self.simulations.append(sim)
@@ -215,11 +260,23 @@ class SimulationRunner(threading.Thread):
                     self.order_parameters_history[parameters].order_parameters = np.append(self.order_parameters_history[parameters].order_parameters, op)
                     # Log order parameters immediately when received
                     self._log_order_parameters_to_tensorboard(parameters, op)
+
+                    # Save order parameters periodically
+                    self._order_parameters_received_count[parameters] += 1
+                    if self._order_parameters_received_count[parameters]:
+                        self._save_order_parameters(parameters)
+                        self._save_parameter_summary(parameters)
                 if message_type == MessageType.Fluctuations:
                     parameters, fl = msg
                     self.order_parameters_history[parameters].fluctuations = np.append(self.order_parameters_history[parameters].fluctuations, fl)
                     # Log fluctuations immediately when received
                     self._log_fluctuations_to_tensorboard(parameters, fl)
+
+                    # Save fluctuations periodically
+                    self._fluctuations_received_count[parameters] += 1
+                    if self._fluctuations_received_count[parameters]:
+                        self._save_fluctuations(parameters)
+                        self._save_parameter_summary(parameters)
                 if message_type == MessageType.State:
                     # update the state
                     msg = cast(LatticeState, msg)
@@ -227,6 +284,13 @@ class SimulationRunner(threading.Thread):
                     state.update_from(msg)
                     # Log energy and acceptance rates immediately when state is received
                     self._log_state_to_tensorboard(state)
+
+                    # Save state periodically
+                    parameters = msg.parameters
+                    self._states_received_count[parameters] += 1
+                    if self._states_received_count[parameters]:
+                        self._save_state(parameters)
+                        self._save_parameter_summary(parameters)
                 if message_type == MessageType.ParallelTemperingSignUp:
                     pt_parameters = msg
                     pt_ready.append((index, pt_parameters))
@@ -276,6 +340,9 @@ class SimulationRunner(threading.Thread):
         # Log final temperature plots
         if self.tb_logger:
             self.log_temperature_plots_to_tensorboard(recent_points=self.cycles)
+
+        # Save final data for all parameter sets
+        self._save_final_data()
 
         # Clean up progress bars
         self._cleanup_progress_bars()
@@ -616,3 +683,193 @@ class SimulationRunner(threading.Thread):
 
         except Exception as e:
             logger.error(f"Error logging temperature plots to TensorBoard: {e}")
+
+    def _get_parameter_folder_name(self, parameters: DefiningParameters) -> str:
+        """Generate a folder name from DefiningParameters.
+
+        Creates a human-readable folder name like 'T0.90_lam0.30_tau1.00' from the parameters.
+        """
+        temp_str = f"T{float(parameters.temperature):.2f}"
+        lam_str = f"lam{float(parameters.lam):.2f}"
+        tau_str = f"tau{float(parameters.tau):.2f}"
+        return f"{temp_str}_{lam_str}_{tau_str}"
+
+    def _get_parameter_save_paths(self, parameters: DefiningParameters) -> Dict[str, pathlib.Path]:
+        """Get save paths organized by DefiningParameters.
+
+        Returns paths for saving order parameters, fluctuations, and states
+        in folders named by the defining parameters.
+        """
+        if self.working_folder is None:
+            return {}
+
+        param_folder_name = self._get_parameter_folder_name(parameters)
+        base_path = pathlib.Path(self.working_folder) / "parameters" / param_folder_name
+
+        return {
+            'order_parameters': base_path / "data" / "order_parameters.npz",
+            'fluctuations': base_path / "data" / "fluctuations.npz",
+            'state': base_path / "states" / "latest_state.npz",
+            'summary': base_path / "summary.json"
+        }
+
+    def _save_order_parameters(self, parameters: DefiningParameters) -> None:
+        """Save order parameters for a specific parameter set."""
+        if self.working_folder is None:
+            return
+
+        try:
+            paths = self._get_parameter_save_paths(parameters)
+            if not paths:
+                return
+
+            # Ensure directory exists
+            paths['order_parameters'].parent.mkdir(parents=True, exist_ok=True)
+
+            # Get order parameters history for this parameter set
+            history = self.order_parameters_history.get(parameters)
+            if history and len(history.order_parameters) > 0:
+                history.save_to_npz(order_parameters_path=str(paths['order_parameters']))
+                logger.debug(f"Saved order parameters for {parameters} to {paths['order_parameters']}")
+
+        except Exception as e:
+            logger.error(f"Error saving order parameters for {parameters}: {e}")
+
+    def _save_fluctuations(self, parameters: DefiningParameters) -> None:
+        """Save fluctuations for a specific parameter set."""
+        if self.working_folder is None:
+            return
+
+        try:
+            paths = self._get_parameter_save_paths(parameters)
+            if not paths:
+                return
+
+            # Ensure directory exists
+            paths['fluctuations'].parent.mkdir(parents=True, exist_ok=True)
+
+            # Get fluctuations history for this parameter set
+            history = self.order_parameters_history.get(parameters)
+            if history and len(history.fluctuations) > 0:
+                history.save_to_npz(fluctuations_path=str(paths['fluctuations']))
+                logger.debug(f"Saved fluctuations for {parameters} to {paths['fluctuations']}")
+
+        except Exception as e:
+            logger.error(f"Error saving fluctuations for {parameters}: {e}")
+
+    def _save_state(self, parameters: DefiningParameters) -> None:
+        """Save the latest state for a specific parameter set."""
+        if self.working_folder is None:
+            return
+
+        try:
+            paths = self._get_parameter_save_paths(parameters)
+            if not paths:
+                return
+
+            # Find the state with matching parameters
+            matching_state = None
+            for state in self.states:
+                if state.parameters == parameters:
+                    matching_state = state
+                    break
+
+            if matching_state is None:
+                logger.warning(f"No state found for parameters {parameters}")
+                return
+
+            # Ensure directory exists
+            paths['state'].parent.mkdir(parents=True, exist_ok=True)
+
+            # Save lattice state using LatticeState method
+            if matching_state.lattice.particles is not None:
+                save_data = matching_state.to_npz_dict(include_lattice=False, include_parameters=False)
+                # Add only particles from lattice (not full lattice data to avoid duplication)
+                save_data['particles'] = matching_state.lattice.particles
+
+                np.savez_compressed(paths['state'], **save_data)
+                logger.debug(f"Saved state for {parameters} to {paths['state']}")
+
+        except Exception as e:
+            logger.error(f"Error saving state for {parameters}: {e}")
+
+    def _save_parameter_summary(self, parameters: DefiningParameters) -> None:
+        """Save a JSON summary for a specific parameter set similar to Simulation class."""
+        if self.working_folder is None:
+            return
+
+        try:
+            paths = self._get_parameter_save_paths(parameters)
+            if not paths:
+                return
+
+            # Find the state with matching parameters
+            matching_state = None
+            for state in self.states:
+                if state.parameters == parameters:
+                    matching_state = state
+                    break
+
+            if matching_state is None:
+                return
+
+            # Ensure directory exists
+            paths['summary'].parent.mkdir(parents=True, exist_ok=True)
+
+            # Get history for this parameter set
+            history = self.order_parameters_history.get(parameters)
+
+            # Create summary data similar to Simulation class structure
+            summary_data = {
+                'current_step': int(matching_state.iterations),
+                'total_cycles': self.cycles,
+                'parameters': parameters.to_dict()
+            }
+
+            # Add order parameters history data using its to_dict method
+            if history:
+                history_data = history.to_dict()
+                summary_data.update(history_data)
+            else:
+                # Default empty data when no history available
+                summary_data.update({
+                    'latest_order_parameters': {},
+                    'latest_fluctuations': {},
+                    'data_counts': {
+                        'order_parameters': 0,
+                        'fluctuations': 0
+                    }
+                })
+
+            # Add lattice state data using its to_dict method
+            state_data = matching_state.to_dict()
+            summary_data.update(state_data)
+
+            # Save JSON summary
+            with open(paths['summary'], 'w', encoding='utf-8') as f:
+                json.dump(summary_data, f, indent=2, ensure_ascii=False)
+
+            logger.debug(f"Saved summary for {parameters} to {paths['summary']}")
+
+        except Exception as e:
+            logger.error(f"Error saving summary for {parameters}: {e}")
+
+    def _save_final_data(self) -> None:
+        """Save final data for all parameter sets when simulation completes."""
+        if self.working_folder is None:
+            return
+
+        logger.info("Saving final data for all parameter sets...")
+
+        # Save data for all parameter sets that have data
+        for parameters in self.order_parameters_history.keys():
+            try:
+                self._save_order_parameters(parameters)
+                self._save_fluctuations(parameters)
+                self._save_state(parameters)
+                self._save_parameter_summary(parameters)
+                logger.info(f"Saved final data for parameters {self._get_parameter_folder_name(parameters)}")
+            except Exception as e:
+                logger.error(f"Error saving final data for {parameters}: {e}")
+
+        logger.info("Final data saving completed.")
