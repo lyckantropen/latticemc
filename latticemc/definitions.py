@@ -432,7 +432,7 @@ class OrderParametersHistory:
             if window_op > 0:
                 decorrelated_op = order_params_array[-window_op::decorrelation_interval]
                 for name in gathered_order_parameters.fields.keys():
-                    if name in decorrelated_op.dtype.names:
+                    if name in decorrelated_op.dtype.fields.keys():
                         decorrelated_avgs_op[name] = np.mean(decorrelated_op[name])
 
         # Process fluctuations if available
@@ -443,7 +443,7 @@ class OrderParametersHistory:
             if window_fl > 0:
                 decorrelated_fl = fluctuations_array[-window_fl::decorrelation_interval]
                 for name in gathered_order_parameters.fields.keys():
-                    if name in decorrelated_fl.dtype.names:
+                    if name in decorrelated_fl.dtype.fields.keys():
                         decorrelated_avgs_fl[name] = np.mean(decorrelated_fl[name])
 
         return decorrelated_avgs_op, decorrelated_avgs_fl

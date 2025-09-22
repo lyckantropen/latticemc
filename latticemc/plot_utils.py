@@ -117,7 +117,7 @@ def create_field_data_vs_temperature_plots(
             source_data = decorrelated_op if data_type == 'order_parameters' else decorrelated_fl
 
             for field in order_parameter_fields:
-                if field in source_data.dtype.names:
+                if field in source_data.dtype.fields.keys():
                     field_data[field].append(float(source_data[field][0]))
                 else:
                     field_data[field].append(0.0)  # Default value if field not present
