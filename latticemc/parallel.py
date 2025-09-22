@@ -10,6 +10,7 @@ import time
 from collections import defaultdict
 from decimal import Decimal
 from enum import Enum
+from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, cast
 
 import numpy as np
@@ -419,6 +420,9 @@ class SimulationRunner(threading.Thread):
 
         # Clean up progress bars
         self._cleanup_progress_bars()
+
+        # Save final JSON summary file
+        self._save_final_summary()
 
     def _check_for_crashed_processes(self) -> None:
         """Check for crashed processes using ping messages and process status."""
@@ -958,3 +962,28 @@ class SimulationRunner(threading.Thread):
                 logger.error(f"Error saving final data for {parameters}: {e}")
 
         logger.info("Final data saving completed.")
+
+    def _save_final_summary(self) -> None:
+        """Save a final JSON summary file for the entire simulation run."""
+        if self.working_folder is None:
+            return
+
+        try:
+            summary_path = Path(self.working_folder) / "simulation_summary.json"
+
+            summary_data = {
+                'total_processes': len(self.simulations),
+                'total_cycles': self.cycles,
+                'parameters_list': [state.parameters.to_dict() for state in self.states],
+                'process_status': self.get_process_status(),
+                'finished_gracefully': self.finished_gracefully(),
+                'running_time_seconds': time.time() - (self._start_time or time.time())
+            }
+
+            with open(summary_path, 'w', encoding='utf-8') as f:
+                json.dump(summary_data, f, indent=2, ensure_ascii=False)
+
+            logger.info(f"Saved final simulation summary to {summary_path}")
+
+        except Exception as e:
+            logger.error(f"Error saving final simulation summary: {e}")

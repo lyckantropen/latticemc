@@ -3,6 +3,7 @@
 import json
 import logging
 import pathlib
+import time
 from typing import Any, Dict, List, Optional
 
 import joblib
@@ -50,6 +51,7 @@ class Simulation:
         self.fluctuations_window = fluctuations_window
         self.per_state_updaters = per_state_updaters or []
         self.progress_bar = progress_bar
+        self.start_time = time.time()
 
         # Persistence settings
         self.working_folder = pathlib.Path(working_folder) if working_folder else None
@@ -366,7 +368,9 @@ class Simulation:
             summary: Dict[str, Any] = {
                 'current_step': self.current_step,
                 'total_cycles': self.cycles,
-                'parameters': self.state.parameters.to_dict()
+                'parameters': self.state.parameters.to_dict(),
+                'finished': self.current_step >= self.cycles,
+                'running_time_seconds': time.time() - self.start_time
             }
 
             # Add order parameters history data using its to_dict method
