@@ -112,15 +112,15 @@ class Simulation:
                 # Update progress bar if available
                 if self.progress_bar is not None:
                     # Update description with current energy if available
-                    if len(self.local_history.order_parameters) > 0:
-                        current_energy = self.local_history.order_parameters['energy'][-1]
+                    if len(self.local_history.order_parameters_list) > 0:
+                        current_energy = self.local_history.order_parameters_list[-1]['energy']
                         self.progress_bar.set_description(f"Energy: {current_energy:.6f}")
 
                 # Log progress periodically (fallback when no progress bar)
                 elif (step + 1) % 1000 == 0:
                     logger.debug(f"Completed {step + 1}/{self.cycles} steps")
-                    if len(self.local_history.order_parameters) > 0:
-                        current_energy = self.local_history.order_parameters['energy'][-1]
+                    if len(self.local_history.order_parameters_list) > 0:
+                        current_energy = self.local_history.order_parameters_list[-1]['energy']
                         logger.debug(f"Current energy: {current_energy:.6f}")
 
         except Exception as e:
@@ -271,8 +271,8 @@ class Simulation:
         """
         logger.info(f"Simulation completed successfully after {self.cycles} cycles")
         logger.debug(f"Final relevant history length: {self._relevant_history_length}")
-        if len(self.local_history.order_parameters) > 0:
-            final_energy = self.local_history.order_parameters['energy'][-1]
+        if len(self.local_history.order_parameters_list) > 0:
+            final_energy = self.local_history.order_parameters_list[-1]['energy']
             logger.debug(f"Final energy: {final_energy:.6f}")
         logger.debug(f"Total collected data points: {len(self.local_history.order_parameters)}")
 
@@ -354,9 +354,11 @@ class Simulation:
 
         try:
             # Save order parameters and fluctuations using OrderParametersHistory methods
+            order_params_array = self.local_history._get_order_parameters_array()
+            fluctuations_array = self.local_history._get_fluctuations_array()
             self.local_history.save_to_npz(
-                order_parameters_path=str(paths['order_parameters']) if len(self.local_history.order_parameters) > 0 else None,
-                fluctuations_path=str(paths['fluctuations']) if len(self.local_history.fluctuations) > 0 else None
+                order_parameters_path=str(paths['order_parameters']) if len(order_params_array) > 0 else None,
+                fluctuations_path=str(paths['fluctuations']) if len(fluctuations_array) > 0 else None
             )
 
             # Save lattice state using LatticeState method

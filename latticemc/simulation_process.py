@@ -5,7 +5,7 @@ import multiprocessing as mp
 from collections import namedtuple
 from ctypes import c_double
 from enum import Enum
-from typing import List, Optional, cast, override
+from typing import List, Optional, cast
 
 import numpy as np
 
@@ -72,7 +72,6 @@ class SimulationProcess(Simulation, mp.Process):
         self.running = mp.Value('i', 1)
         self.temperature = mp.Value(c_double, float(self.state.parameters.temperature))
 
-    @override
     def _create_additional_updaters(self) -> List[Updater]:
         """Create additional updaters for queue communication and parallel tempering."""
         # Queue communication updaters
@@ -147,7 +146,6 @@ class SimulationProcess(Simulation, mp.Process):
 
         logging.info(f"Process {self.index} logging set up (T={temp}, λ={lam}, τ={tau})")
 
-    @override
     def run(self) -> None:
         """Execute the simulation process by calling the Simulation.run() method."""
         # Set up process-specific logging if working folder is available
@@ -157,13 +155,11 @@ class SimulationProcess(Simulation, mp.Process):
         # Call the Simulation.run() method, not mp.Process.run()
         Simulation.run(self)
 
-    @override
     def _handle_simulation_error(self, error: Exception) -> None:
         """Handle simulation errors by notifying the queue and calling parent handler."""
         self.queue.put((MessageType.Error, self.index, (self.state.parameters, error)))
         super()._handle_simulation_error(error)
 
-    @override
     def _simulation_finished(self) -> None:
         """Handle simulation completion by marking as finished and notifying queue."""
         # Mark as finished - this will prevent future barrier waits
@@ -216,7 +212,7 @@ class SimulationProcess(Simulation, mp.Process):
 
         # energy needs to be scaled by number of particles (total system energy not per-particle)
         # the energy stored in order parameters is a lattice average
-        energy = self.local_history.order_parameters['energy'][-1] * cast(np.ndarray, self.state.lattice.particles).size
+        energy = self.local_history.order_parameters_list[-1]['energy'] * cast(np.ndarray, self.state.lattice.particles).size
         our, theirs = mp.Pipe()
         self.queue.put((MessageType.ParallelTemperingSignUp, self.index, ParallelTemperingParameters(
             parameters=self.state.parameters, energy=energy, pipe=theirs)))

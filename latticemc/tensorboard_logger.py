@@ -1,21 +1,15 @@
 """TensorBoard logging utilities for lattice Monte Carlo simulations."""
 
-import io
 import logging
 import os
 from datetime import datetime
 from typing import Dict, List, Optional
 
-import matplotlib
-import matplotlib.pyplot as plt
 import numpy as np
-from PIL import Image
 from tensorboardX import SummaryWriter
 
-from .definitions import DefiningParameters, LatticeState, OrderParametersHistory
-
-matplotlib.use('Agg')  # Use non-interactive backend
-
+from .definitions import DefiningParameters, LatticeState
+from .plot_utils import create_temperature_series_plot
 
 logger = logging.getLogger(__name__)
 
@@ -188,211 +182,17 @@ class TensorBoardLogger:
         step : int
             Step/iteration for TensorBoard
         """
-        if not temperatures or not values or len(temperatures) != len(values):
-            logger.warning(f"Cannot create temperature plot for {tag}: mismatched or empty data")
-            return
-
         try:
-            plt.figure(figsize=(10, 6))
-            plt.plot(temperatures, values, 'o-', linewidth=2, markersize=4)
-            plt.xlabel('Temperature')
-            plt.ylabel(tag.replace('_', ' ').title())
-            plt.title(f'{tag.replace("_", " ").title()} vs Temperature (Step {step})')
-            plt.grid(True, alpha=0.3)
-
-            # Convert to image and log
-            buf = io.BytesIO()
-            plt.savefig(buf, format='png', dpi=150, bbox_inches='tight',
-                        facecolor='white', edgecolor='none')
-            buf.seek(0)
-
-            # Read as PIL image and convert to numpy
-            img = Image.open(buf)
-            img_array = np.array(img)
-
-            # TensorBoard expects CHW format (Color, Height, Width)
-            if len(img_array.shape) == 3:
-                img_array = img_array.transpose(2, 0, 1)  # HWC -> CHW
-
-            self.writer.add_image(tag + '_vs_temperature', img_array, step, dataformats='CHW')
-            plt.close()
-            buf.close()
-
+            img = create_temperature_series_plot(tag, temperatures, values)
+            if img:
+                # Convert PIL image to numpy array for TensorBoard
+                img_array = np.array(img)
+                # TensorBoard expects CHW format (Color, Height, Width)
+                if len(img_array.shape) == 3:
+                    img_array = img_array.transpose(2, 0, 1)  # HWC -> CHW
+                self.writer.add_image(tag + '_vs_temperature', img_array, step, dataformats='CHW')
         except Exception as e:
-            logger.error(f"Error creating temperature plot for {tag}: {e}")
-
-    def _log_field_data_vs_temperature(self,
-                                       data_type: str,
-                                       order_parameters_history: Dict[DefiningParameters, OrderParametersHistory],
-                                       step: int,
-                                       recent_points: int = 1000,
-                                       decorrelation_interval: int = 10) -> None:
-        """
-        Log field data vs temperature as custom plots.
-
-        Parameters
-        ----------
-        data_type : str
-            Type of data to plot ('order_parameters' or 'fluctuations')
-        order_parameters_history : Dict[DefiningParameters, OrderParametersHistory]
-            Dictionary mapping parameters to their order parameter histories
-        step : int
-            Step/iteration for TensorBoard
-        recent_points : int, optional
-            Number of recent points to average for each temperature (default: 1000)
-        decorrelation_interval : int, optional
-            Interval to skip points for decorrelation (default: 10)
-        """
-        if not order_parameters_history:
-            logger.warning(f"Cannot create {data_type} temperature plots: empty history")
-            return
-
-        try:
-            temperatures = []
-            field_data: Dict[str, List[float]] = {field: [] for field in self.order_parameter_fields}
-
-            # Choose the appropriate data source
-            data_source = 'order_parameters' if data_type == 'order_parameters' else 'fluctuations'
-
-            for params, history in order_parameters_history.items():
-                history_data = getattr(history, data_source)
-                if history_data.size > 0:
-                    temperatures.append(float(params.temperature))
-                    this_recent_points = min(recent_points, len(history_data))
-                    # Use the most recent points for averaging
-                    recent_data = history_data[-this_recent_points::decorrelation_interval] if len(
-                        history_data) >= this_recent_points else history_data
-
-                    for field in self.order_parameter_fields:
-                        if field in recent_data.dtype.names:
-                            field_data[field].append(np.mean(recent_data[field]))
-                        else:
-                            field_data[field].append(0.0)  # Default value if field not present
-
-            if temperatures:
-                # Sort by temperature for cleaner plots
-                sorted_indices = np.argsort(temperatures)
-                sorted_temps = [temperatures[i] for i in sorted_indices]
-
-                # Create plots for each field
-                prefix = 'order_parameter' if data_type == 'order_parameters' else 'fluctuation'
-                for field in self.order_parameter_fields:
-                    if any(field_data[field]):  # Only plot if we have non-zero data
-                        sorted_values = [field_data[field][i] for i in sorted_indices]
-                        self.log_temperature_series(f'{prefix}_{field}', sorted_temps, sorted_values, step)
-
-        except Exception as e:
-            logger.error(f"Error creating {data_type} temperature plots: {e}")
-
-    def log_order_parameters_vs_temperature(self,
-                                            order_parameters_history: Dict[DefiningParameters, OrderParametersHistory],
-                                            step: int,
-                                            recent_points: int = 100,
-                                            decorrelation_interval: int = 10) -> None:
-        """
-        Log all order parameters vs temperature as custom plots.
-
-        Parameters
-        ----------
-        order_parameters_history : Dict[DefiningParameters, OrderParametersHistory]
-            Dictionary mapping parameters to their order parameter histories
-        step : int
-            Step/iteration for TensorBoard
-        recent_points : int, optional
-            Number of recent points to average for each temperature (default: 100)
-        decorrelation_interval : int, optional
-            Interval to skip points for decorrelation (default: 10)
-        """
-        self._log_field_data_vs_temperature('order_parameters', order_parameters_history, step, recent_points, decorrelation_interval)
-
-    def log_fluctuations_vs_temperature(self,
-                                        order_parameters_history: Dict[DefiningParameters, OrderParametersHistory],
-                                        step: int,
-                                        recent_points: int = 1000,
-                                        decorrelation_interval: int = 10) -> None:
-        """
-        Log all fluctuations vs temperature as custom plots.
-
-        Parameters
-        ----------
-        order_parameters_history : Dict[DefiningParameters, OrderParametersHistory]
-            Dictionary mapping parameters to their order parameter histories
-        step : int
-            Step/iteration for TensorBoard
-        recent_points : int, optional
-            Number of recent points to average for each temperature (default: 1000)
-        decorrelation_interval : int, optional
-            Interval to skip points for decorrelation (default: 10)
-        """
-        self._log_field_data_vs_temperature('fluctuations', order_parameters_history, step, recent_points, decorrelation_interval)
-
-    def log_energy_vs_temperature(self,
-                                  order_parameters_history: Dict[DefiningParameters, OrderParametersHistory],
-                                  step: int,
-                                  recent_points: int = 1000,
-                                  decorrelation_interval: int = 10) -> None:
-        """
-        Log energy vs temperature as a custom plot.
-
-        Parameters
-        ----------
-        order_parameters_history : Dict[DefiningParameters, OrderParametersHistory]
-            Dictionary mapping parameters to their order parameter histories
-        step : int
-            Step/iteration for TensorBoard
-        recent_points : int, optional
-            Number of recent points to average for each temperature (default: 1000)
-        decorrelation_interval : int, optional
-            Interval to skip points for decorrelation (default: 10)
-        """
-        if not order_parameters_history:
-            logger.warning("Cannot create energy temperature plot: empty history")
-            return
-
-        try:
-            temperatures = []
-            energies = []
-
-            for params, history in order_parameters_history.items():
-                if history.order_parameters.size > 0:
-                    temperatures.append(float(params.temperature))
-                    # Use the most recent points for averaging
-                    recent_op = history.order_parameters[-recent_points::decorrelation_interval] if len(
-                        history.order_parameters) >= recent_points else history.order_parameters
-                    energies.append(np.mean(recent_op['energy']))
-
-            if temperatures:
-                # Sort by temperature for cleaner plots
-                sorted_data = sorted(zip(temperatures, energies))
-                sorted_temps, sorted_energies = zip(*sorted_data)
-
-                self.log_temperature_series('energy', list(sorted_temps), list(sorted_energies), step)
-
-        except Exception as e:
-            logger.error(f"Error creating energy temperature plot: {e}")
-
-    def log_all_temperature_plots(self,
-                                  order_parameters_history: Dict[DefiningParameters, OrderParametersHistory],
-                                  step: int,
-                                  recent_points: int = 1000,
-                                  decorrelation_interval: int = 10) -> None:
-        """
-        Log all available temperature-based plots (energy, order parameters, fluctuations).
-
-        Parameters
-        ----------
-        order_parameters_history : Dict[DefiningParameters, OrderParametersHistory]
-            Dictionary mapping parameters to their order parameter histories
-        step : int
-            Step/iteration for TensorBoard
-        recent_points : int, optional
-            Number of recent points to average for each temperature (default: 100)
-        decorrelation_interval : int, optional
-            Interval to skip points for decorrelation (default: 10)
-        """
-        self.log_energy_vs_temperature(order_parameters_history, step, recent_points, decorrelation_interval)
-        self.log_order_parameters_vs_temperature(order_parameters_history, step, recent_points, decorrelation_interval)
-        self.log_fluctuations_vs_temperature(order_parameters_history, step, recent_points, decorrelation_interval)
+            logger.error(f"Error logging temperature plot for {tag}: {e}")
 
     def close(self):
         """Close the TensorBoard writer."""

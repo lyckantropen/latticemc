@@ -256,7 +256,7 @@ class SimulationRunner(threading.Thread):
 
                 if message_type == MessageType.OrderParameters:
                     parameters, op = msg
-                    self.order_parameters_history[parameters].order_parameters = np.append(self.order_parameters_history[parameters].order_parameters, op)
+                    self.order_parameters_history[parameters].append_order_parameters(op)
                     # Log order parameters immediately when received
                     self._log_order_parameters_to_tensorboard(parameters, op)
 
@@ -267,7 +267,7 @@ class SimulationRunner(threading.Thread):
                         self._save_parameter_summary(parameters)
                 if message_type == MessageType.Fluctuations:
                     parameters, fl = msg
-                    self.order_parameters_history[parameters].fluctuations = np.append(self.order_parameters_history[parameters].fluctuations, fl)
+                    self.order_parameters_history[parameters].append_fluctuations(fl)
                     # Log fluctuations immediately when received
                     self._log_fluctuations_to_tensorboard(parameters, fl)
 
@@ -326,7 +326,7 @@ class SimulationRunner(threading.Thread):
             if self.tb_logger:
                 current_time = time.time()
                 if current_time - last_logged_time >= 10.0:
-                    self.log_temperature_plots_to_tensorboard()
+                    self.save_temperature_plots()
                     last_logged_time = current_time
 
         # Close TensorBoard logger
@@ -336,9 +336,8 @@ class SimulationRunner(threading.Thread):
         # Ensure all processes have finished
         [sim.join() for sim in self.simulations]  # type: ignore
 
-        # Log final temperature plots
-        if self.tb_logger:
-            self.log_temperature_plots_to_tensorboard(recent_points=self.cycles)
+        # Save final temperature plots
+        self.save_temperature_plots()
 
         # Save final data for all parameter sets
         self._save_final_data()
@@ -645,53 +644,56 @@ class SimulationRunner(threading.Thread):
         except Exception as e:
             logger.error(f"Error logging temperatures after exchange to TensorBoard: {e}")
 
-    def log_temperature_plots_to_tensorboard(self, recent_points: int = 1000) -> None:
+    def save_temperature_plots(self) -> None:
         """
-        Log temperature-based plots for energy, order parameters, and fluctuations.
+        Save temperature-based plots for energy, order parameters, and fluctuations.
 
-        This method creates matplotlib plots showing how energy, order parameters, and
+        This method creates plots showing how energy, order parameters, and
         fluctuations vary with temperature across all simulation processes. The plots
-        are logged as images to TensorBoard for visualization.
-
-        Parameters
-        ----------
-        recent_points : int, optional
-            Number of recent data points to average for each temperature (default: 100)
+        are saved both to TensorBoard for visualization and to the working folder as
+        PNG files for permanent storage. Uses the entire data history for analysis.
 
         Examples
         --------
-        # Log temperature plots during simulation
-        runner.log_temperature_plots_to_tensorboard(recent_points=50)
-
-        # Log with more data points for smoother averaging
-        runner.log_temperature_plots_to_tensorboard(recent_points=200)
+        # Save temperature plots during simulation
+        runner.save_temperature_plots()
         """
-        if not self.tb_logger:
-            return
-
         try:
+            import pathlib
             import time
+
+            from .plot_utils import create_all_temperature_plots
+
             current_step = int(time.time() - (self._start_time or time.time()))
 
-            # Log all temperature-based plots
-            self.tb_logger.log_all_temperature_plots(
-                self.order_parameters_history, current_step, recent_points
-            )
+            # Create all temperature plots using plot_utils (uses entire history)
+            all_plots = create_all_temperature_plots(self.order_parameters_history)
 
-            logger.debug(f"Temperature-based plots logged at step {current_step}")
+            # Log plots to TensorBoard if available
+            if self.tb_logger:
+                for plot_name, img in all_plots.items():
+                    img_array = np.array(img)
+                    # TensorBoard expects CHW format (Color, Height, Width)
+                    if len(img_array.shape) == 3:
+                        img_array = img_array.transpose(2, 0, 1)  # HWC -> CHW
+                    tag = f'{plot_name}_vs_temperature'
+                    self.tb_logger.writer.add_image(tag, img_array, current_step, dataformats='CHW')
+
+                logger.debug(f"Temperature-based plots logged to TensorBoard at step {current_step}")
+
+            # Save plots to working folder if available
+            if self.working_folder and all_plots:
+                plots_dir = pathlib.Path(self.working_folder) / "plots"
+                plots_dir.mkdir(parents=True, exist_ok=True)
+
+                for plot_name, img in all_plots.items():
+                    plot_path = plots_dir / f"{plot_name}_vs_temperature.png"
+                    img.save(plot_path, format='PNG', dpi=(150, 150))
+
+                logger.debug("Temperature-based plots saved to working folder")
 
         except Exception as e:
-            logger.error(f"Error logging temperature plots to TensorBoard: {e}")
-
-    def _get_parameter_folder_name(self, parameters: DefiningParameters) -> str:
-        """Generate a folder name from DefiningParameters.
-
-        Creates a human-readable folder name like 'T0.90_lam0.30_tau1.00' from the parameters.
-        """
-        temp_str = f"T{float(parameters.temperature):.2f}"
-        lam_str = f"lam{float(parameters.lam):.2f}"
-        tau_str = f"tau{float(parameters.tau):.2f}"
-        return f"{temp_str}_{lam_str}_{tau_str}"
+            logger.error(f"Error saving temperature plots: {e}")
 
     def _get_parameter_save_paths(self, parameters: DefiningParameters) -> Dict[str, pathlib.Path]:
         """Get save paths organized by DefiningParameters.
@@ -702,7 +704,7 @@ class SimulationRunner(threading.Thread):
         if self.working_folder is None:
             return {}
 
-        param_folder_name = self._get_parameter_folder_name(parameters)
+        param_folder_name = parameters.get_folder_name()
         base_path = pathlib.Path(self.working_folder) / "parameters" / param_folder_name
 
         return {
@@ -867,7 +869,7 @@ class SimulationRunner(threading.Thread):
                 self._save_fluctuations(parameters)
                 self._save_state(parameters)
                 self._save_parameter_summary(parameters)
-                logger.info(f"Saved final data for parameters {self._get_parameter_folder_name(parameters)}")
+                logger.info(f"Saved final data for parameters {parameters.get_folder_name()}")
             except Exception as e:
                 logger.error(f"Error saving final data for {parameters}: {e}")
 

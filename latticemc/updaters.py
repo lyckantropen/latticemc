@@ -49,9 +49,9 @@ class OrderParametersCalculator(Updater):
     def update(self, state: LatticeState):
         """Calculate and store current order parameters."""
         op = calculate_order_parameters(state)
-        self.order_parameters_history.order_parameters = np.append(self.order_parameters_history.order_parameters, op)
-        self.order_parameters_history.stats = np.append(self.order_parameters_history.stats,
-                                                        np.array([(state.wiggle_rate, state.accepted_x, state.accepted_p)], dtype=simulation_stats))
+        self.order_parameters_history.append_order_parameters(op)
+        stats_item = np.array([(state.wiggle_rate, state.accepted_x, state.accepted_p)], dtype=simulation_stats)
+        self.order_parameters_history.append_stats(stats_item)
         return op
 
     def format_value(self, value):
@@ -74,12 +74,14 @@ class FluctuationsCalculator(Updater):
         """Calculate fluctuations for recent order parameters."""
         fluctuations = np.zeros(1, dtype=gathered_order_parameters)
         if gathered_order_parameters.fields is not None:
+            # Get current order parameters array for fluctuation calculation
+            order_params_array = self.order_parameters_history._get_order_parameters_array()
             for name in gathered_order_parameters.fields.keys():
                 particles_size = state.lattice.particles.size if state.lattice.particles is not None else 1
-                fluct = particles_size * fluctuation(self.order_parameters_history.order_parameters[name][-self.window:])
+                fluct = particles_size * fluctuation(order_params_array[name][-self.window:])
                 fluctuations[name] = fluct
 
-        self.order_parameters_history.fluctuations = np.append(self.order_parameters_history.fluctuations, fluctuations)
+        self.order_parameters_history.append_fluctuations(fluctuations)
         return fluctuations
 
     def format_value(self, value):

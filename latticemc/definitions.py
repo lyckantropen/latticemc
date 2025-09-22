@@ -3,7 +3,7 @@
 import logging
 from dataclasses import dataclass, field
 from decimal import Decimal
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
 from jaxtyping import Shaped
@@ -131,6 +131,16 @@ class DefiningParameters:
             'parameters_tau': float(self.tau)
         }
 
+    def get_folder_name(self) -> str:
+        """Generate a folder name from DefiningParameters.
+
+        Creates a human-readable folder name like 'T0.90_lam0.30_tau1.00' from the parameters.
+        """
+        temp_str = f"T{float(self.temperature):.2f}"
+        lam_str = f"lam{float(self.lam):.2f}"
+        tau_str = f"tau{float(self.tau):.2f}"
+        return f"{temp_str}_{lam_str}_{tau_str}"
+
 
 @dataclass
 class LatticeState:
@@ -240,33 +250,77 @@ class LatticeState:
 class OrderParametersHistory:
     """Values of order parameters, fluctuation of order parameters and simulation statistics as a function of time."""
 
-    order_parameters: Shaped[np.ndarray, "..."] = field(default_factory=lambda: np.empty(0, dtype=gathered_order_parameters))
-    fluctuations: Shaped[np.ndarray, "..."] = field(default_factory=lambda: np.empty(0, dtype=gathered_order_parameters))
-    stats: Shaped[np.ndarray, "..."] = field(default_factory=lambda: np.empty(0, dtype=simulation_stats))
+    _order_parameters: Shaped[np.ndarray, "..."] = field(default_factory=lambda: np.empty(0, dtype=gathered_order_parameters))
+    _fluctuations: Shaped[np.ndarray, "..."] = field(default_factory=lambda: np.empty(0, dtype=gathered_order_parameters))
+    _stats: Shaped[np.ndarray, "..."] = field(default_factory=lambda: np.empty(0, dtype=simulation_stats))
+
+    # Lists for efficient appending
+    order_parameters_list: List[Shaped[np.ndarray, "1"]] = field(default_factory=list, init=False)
+    fluctuations_list: List[Shaped[np.ndarray, "1"]] = field(default_factory=list, init=False)
+    stats_list: List[Shaped[np.ndarray, "1"]] = field(default_factory=list, init=False)
+
+    @property
+    def order_parameters(self) -> np.ndarray:
+        """Get order parameters array, automatically syncing from list if needed."""
+        if len(self.order_parameters_list) > self._order_parameters.size:
+            self._order_parameters = np.array(self.order_parameters_list, dtype=gathered_order_parameters)
+        return self._order_parameters
+
+    @order_parameters.setter
+    def order_parameters(self, value: np.ndarray) -> None:
+        """Set order parameters array."""
+        self._order_parameters = value
+
+    @property
+    def fluctuations(self) -> np.ndarray:
+        """Get fluctuations array, automatically syncing from list if needed."""
+        if len(self.fluctuations_list) > self._fluctuations.size:
+            self._fluctuations = np.array(self.fluctuations_list, dtype=gathered_order_parameters)
+        return self._fluctuations
+
+    @fluctuations.setter
+    def fluctuations(self, value: np.ndarray) -> None:
+        """Set fluctuations array."""
+        self._fluctuations = value
+
+    @property
+    def stats(self) -> np.ndarray:
+        """Get stats array, automatically syncing from list if needed."""
+        if len(self.stats_list) > self._stats.size:
+            self._stats = np.array(self.stats_list, dtype=simulation_stats)
+        return self._stats
+
+    @stats.setter
+    def stats(self, value: np.ndarray) -> None:
+        """Set stats array."""
+        self._stats = value
 
     def to_dict(self) -> dict:
         """Convert latest order parameters and fluctuations to dictionary for JSON serialization."""
+        order_params_array = self._get_order_parameters_array()
+        fluctuations_array = self._get_fluctuations_array()
+
         result = {
             'latest_order_parameters': {},
             'latest_fluctuations': {},
             'data_counts': {
-                'order_parameters': len(self.order_parameters),
-                'fluctuations': len(self.fluctuations)
+                'order_parameters': len(order_params_array),
+                'fluctuations': len(fluctuations_array)
             }
         }
 
         # Add latest order parameters
-        if len(self.order_parameters) > 0:
-            latest_op = self.order_parameters[-1]
-            if self.order_parameters.dtype.names:
-                for field_name in self.order_parameters.dtype.names:
+        if len(order_params_array) > 0:
+            latest_op = order_params_array[-1]
+            if order_params_array.dtype.names:
+                for field_name in order_params_array.dtype.names:
                     result['latest_order_parameters'][field_name] = float(latest_op[field_name])  # type: ignore[assignment]
 
         # Add latest fluctuations
-        if len(self.fluctuations) > 0:
-            latest_fluct = self.fluctuations[-1]
-            if self.fluctuations.dtype.names:
-                for field_name in self.fluctuations.dtype.names:
+        if len(fluctuations_array) > 0:
+            latest_fluct = fluctuations_array[-1]
+            if fluctuations_array.dtype.names:
+                for field_name in fluctuations_array.dtype.names:
                     result['latest_fluctuations'][field_name] = float(latest_fluct[field_name])  # type: ignore[assignment]
 
         return result
@@ -276,11 +330,15 @@ class OrderParametersHistory:
         """Save order parameters and fluctuations to NPZ files."""
         import numpy as np
 
-        if order_parameters_path and len(self.order_parameters) > 0:
-            np.savez_compressed(order_parameters_path, order_parameters=self.order_parameters)
+        # Get current arrays from lists or fallback to existing arrays
+        order_params_array = self._get_order_parameters_array()
+        fluctuations_array = self._get_fluctuations_array()
 
-        if fluctuations_path and len(self.fluctuations) > 0:
-            np.savez_compressed(fluctuations_path, fluctuations=self.fluctuations)
+        if order_parameters_path and len(order_params_array) > 0:
+            np.savez_compressed(order_parameters_path, order_parameters=order_params_array)
+
+        if fluctuations_path and len(fluctuations_array) > 0:
+            np.savez_compressed(fluctuations_path, fluctuations=fluctuations_array)
 
     def load_from_npz(self, order_parameters_path: Optional[str] = None,
                       fluctuations_path: Optional[str] = None) -> None:
@@ -300,3 +358,89 @@ class OrderParametersHistory:
             if fluc_path.exists():
                 fluc_data = np.load(fluc_path)
                 self.fluctuations = fluc_data['fluctuations']
+
+    def append_order_parameters(self, item: np.ndarray) -> None:
+        """Efficiently append order parameters using internal list."""
+        # Handle structured arrays properly - preserve structured array format for field access
+        if item.ndim == 0:  # scalar structured array
+            self.order_parameters_list.append(item)
+        else:  # 1D structured array with one or more elements
+            for element in item:
+                self.order_parameters_list.append(element)
+
+    def append_fluctuations(self, item: np.ndarray) -> None:
+        """Efficiently append fluctuations using internal list."""
+        # Handle structured arrays properly - preserve structured array format for field access
+        if item.ndim == 0:  # scalar structured array
+            self.fluctuations_list.append(item)
+        else:  # 1D structured array with one or more elements
+            for element in item:
+                self.fluctuations_list.append(element)
+
+    def append_stats(self, item: np.ndarray) -> None:
+        """Efficiently append stats using internal list."""
+        # Handle structured arrays properly - preserve structured array format for field access
+        if item.ndim == 0:  # scalar structured array
+            self.stats_list.append(item)
+        else:  # 1D structured array with one or more elements
+            for element in item:
+                self.stats_list.append(element)
+
+    def _get_order_parameters_array(self) -> np.ndarray:
+        """Convert internal list to numpy array when needed, falling back to existing array."""
+        if len(self.order_parameters_list) > 0:
+            return np.array(self.order_parameters_list, dtype=gathered_order_parameters)
+        # Fall back to existing array if list is empty
+        return self._order_parameters
+
+    def _get_fluctuations_array(self) -> np.ndarray:
+        """Convert internal list to numpy array when needed, falling back to existing array."""
+        if len(self.fluctuations_list) > 0:
+            return np.array(self.fluctuations_list, dtype=gathered_order_parameters)
+        # Fall back to existing array if list is empty
+        return self._fluctuations
+
+    def _get_stats_array(self) -> np.ndarray:
+        """Convert internal list to numpy array when needed, falling back to existing array."""
+        if len(self.stats_list) > 0:
+            return np.array(self.stats_list, dtype=simulation_stats)
+        # Fall back to existing array if list is empty
+        return self._stats
+
+    def calculate_decorrelated_averages(self,
+                                        limit_history: Optional[int] = None,
+                                        decorrelation_interval: int = 10
+                                        ) -> Tuple[Shaped[np.ndarray, "1"], Shaped[np.ndarray, "1"]]:
+        """Calculate decorrelated averages of order parameters over a sliding window."""
+        assert gathered_order_parameters.fields is not None
+
+        # Get current arrays from lists
+        order_params_array = self._get_order_parameters_array()
+        fluctuations_array = self._get_fluctuations_array()
+
+        decorrelated_avgs_op = np.zeros(1, dtype=gathered_order_parameters)
+        decorrelated_avgs_fl = np.zeros(1, dtype=gathered_order_parameters)
+
+        # Process order parameters if available
+        if len(order_params_array) > 0:
+            window_op = limit_history if limit_history is not None else len(order_params_array)
+            window_op = min(window_op, len(order_params_array))  # Don't exceed available data
+
+            if window_op > 0:
+                decorrelated_op = order_params_array[-window_op::decorrelation_interval]
+                for name in gathered_order_parameters.fields.keys():
+                    if name in decorrelated_op.dtype.names:
+                        decorrelated_avgs_op[name] = np.mean(decorrelated_op[name])
+
+        # Process fluctuations if available
+        if len(fluctuations_array) > 0:
+            window_fl = limit_history if limit_history is not None else len(fluctuations_array)
+            window_fl = min(window_fl, len(fluctuations_array))  # Don't exceed available data
+
+            if window_fl > 0:
+                decorrelated_fl = fluctuations_array[-window_fl::decorrelation_interval]
+                for name in gathered_order_parameters.fields.keys():
+                    if name in decorrelated_fl.dtype.names:
+                        decorrelated_avgs_fl[name] = np.mean(decorrelated_fl[name])
+
+        return decorrelated_avgs_op, decorrelated_avgs_fl
