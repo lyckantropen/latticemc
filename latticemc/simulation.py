@@ -274,7 +274,7 @@ class Simulation:
         if len(self.local_history.order_parameters_list) > 0:
             final_energy = self.local_history.order_parameters_list[-1]['energy']
             logger.debug(f"Final energy: {final_energy:.6f}")
-        logger.debug(f"Total collected data points: {len(self.local_history.order_parameters)}")
+        logger.debug(f"Total collected data points: {len(self.local_history.order_parameters_list)}")
 
         # Final save and cleanup if working folder is specified
         if self.working_folder is not None:
@@ -294,26 +294,6 @@ class Simulation:
         old_length = self._relevant_history_length
         self._relevant_history_length = 0
         logger.debug(f"Reset relevant history length from {old_length} to 0")
-
-    def get_recent_order_parameters(self, max_count: Optional[int] = None):
-        """Get recent order parameters, limited by relevant history length."""
-        if max_count is None:
-            max_count = self._relevant_history_length
-
-        count = min(self._relevant_history_length, max_count)
-        if count > 0:
-            return self.local_history.order_parameters[-count:]
-        return self.local_history.order_parameters
-
-    def get_recent_fluctuations(self, max_count: Optional[int] = None):
-        """Get recent fluctuation values, limited by relevant history length."""
-        if max_count is None:
-            max_count = self._relevant_history_length
-
-        count = min(self._relevant_history_length, max_count)
-        if count > 0:
-            return self.local_history.fluctuations[-count:]
-        return self.local_history.fluctuations
 
     def _setup_working_folder(self) -> None:
         """Set up the working folder for saving simulation data."""
@@ -443,10 +423,10 @@ class Simulation:
                 fluctuations_path=str(paths['fluctuations']) if paths['fluctuations'].exists() else None
             )
 
-            if len(self.local_history.order_parameters) > 0:
-                logger.debug(f"Recovered {len(self.local_history.order_parameters)} order parameter entries")
-            if len(self.local_history.fluctuations) > 0:
-                logger.debug(f"Recovered {len(self.local_history.fluctuations)} fluctuation entries")
+            if len(self.local_history.order_parameters_list) > 0:
+                logger.debug(f"Recovered {len(self.local_history.order_parameters_list)} order parameter entries")
+            if len(self.local_history.fluctuations_list) > 0:
+                logger.debug(f"Recovered {len(self.local_history.fluctuations_list)} fluctuation entries")
 
             logger.info(f"Successfully recovered simulation from step {self.current_step}")
             return True
@@ -495,7 +475,7 @@ class OrderParametersSaver(Updater):
     def update(self, state: LatticeState):
         """Save order parameters history."""
         try:
-            if len(self.order_parameters_history.order_parameters) > 0:
+            if len(self.order_parameters_history.order_parameters_list) > 0:
                 self.order_parameters_history.save_to_npz(order_parameters_path=str(self.save_path))
                 logger.debug(f"Saved order parameters to {self.save_path}")
             return f"Order parameters saved at step {state.iterations}"
@@ -516,7 +496,7 @@ class FluctuationsSaver(Updater):
     def update(self, state: LatticeState):
         """Save fluctuations history."""
         try:
-            if len(self.order_parameters_history.fluctuations) > 0:
+            if len(self.order_parameters_history.fluctuations_list) > 0:
                 self.order_parameters_history.save_to_npz(fluctuations_path=str(self.save_path))
                 logger.debug(f"Saved fluctuations to {self.save_path}")
             return f"Fluctuations saved at step {state.iterations}"

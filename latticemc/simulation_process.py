@@ -9,7 +9,7 @@ from typing import List, Optional, cast
 
 import numpy as np
 
-from .definitions import LatticeState
+from .definitions import LatticeState, gathered_order_parameters
 from .simulation import Simulation
 from .updaters import CallbackUpdater, Updater
 
@@ -174,14 +174,16 @@ class SimulationProcess(Simulation, mp.Process):
     def _broadcast_order_parameters(self) -> None:
         """Publish recent order parameters from history to the governing thread."""
         count = min(self._relevant_history_length, self.report_order_parameters_every)
-        recent_params = self.local_history.order_parameters[-count:] if count > 0 else self.local_history.order_parameters
+        recent_params = np.array(self.local_history.order_parameters_list[-count:],
+                                 dtype=gathered_order_parameters) if count > 0 else self.local_history.order_parameters
         self.queue.put((MessageType.OrderParameters, self.index,
                         (self.state.parameters, recent_params)))
 
     def _broadcast_fluctuations(self) -> None:
         """Publish recent fluctuation values from history to the governing thread."""
         count = min(self._relevant_history_length, self.report_fluctuations_every)
-        recent_fluctuations = self.local_history.fluctuations[-count:] if count > 0 else self.local_history.fluctuations
+        recent_fluctuations = np.array(self.local_history.fluctuations_list[-count:],
+                                       dtype=gathered_order_parameters) if count > 0 else self.local_history.fluctuations
         self.queue.put((MessageType.Fluctuations, self.index,
                         (self.state.parameters, recent_fluctuations)))
 

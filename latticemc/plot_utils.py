@@ -233,7 +233,7 @@ def create_energy_vs_temperature_plot(
         energies = []
 
         for params, history in order_parameters_history.items():
-            if history.order_parameters.size > 0:
+            if len(history.order_parameters_list) > 0:
                 temperatures.append(float(params.temperature))
 
                 # Use the calculate_decorrelated_averages method

@@ -575,7 +575,7 @@ class SimulationRunner(threading.Thread):
 
         try:
             # Use the length of order parameters history as step
-            step = len(self.order_parameters_history[parameters].order_parameters) if parameters in self.order_parameters_history else None
+            step = len(self.order_parameters_history[parameters].order_parameters_list) if parameters in self.order_parameters_history else None
 
             # Log individual order parameter values for this temperature
             for field in self.tb_logger.order_parameter_fields:
@@ -593,7 +593,7 @@ class SimulationRunner(threading.Thread):
 
         try:
             # Use the length of fluctuations history as step
-            step = len(self.order_parameters_history[parameters].fluctuations) if parameters in self.order_parameters_history else None
+            step = len(self.order_parameters_history[parameters].fluctuations_list) if parameters in self.order_parameters_history else None
 
             # Log individual fluctuation values for this temperature
             for field in self.tb_logger.order_parameter_fields:
@@ -729,7 +729,7 @@ class SimulationRunner(threading.Thread):
 
             # Get order parameters history for this parameter set
             history = self.order_parameters_history.get(parameters)
-            if history and len(history.order_parameters) > 0:
+            if history and len(history.order_parameters_list) > 0:
                 history.save_to_npz(order_parameters_path=str(paths['order_parameters']))
                 logger.debug(f"Saved order parameters for {parameters} to {paths['order_parameters']}")
 
@@ -751,7 +751,7 @@ class SimulationRunner(threading.Thread):
 
             # Get fluctuations history for this parameter set
             history = self.order_parameters_history.get(parameters)
-            if history and len(history.fluctuations) > 0:
+            if history and len(history.fluctuations_list) > 0:
                 history.save_to_npz(fluctuations_path=str(paths['fluctuations']))
                 logger.debug(f"Saved fluctuations for {parameters} to {paths['fluctuations']}")
 

@@ -259,6 +259,7 @@ class OrderParametersHistory:
     fluctuations_list: List[Shaped[np.ndarray, "1"]] = field(default_factory=list, init=False)
     stats_list: List[Shaped[np.ndarray, "1"]] = field(default_factory=list, init=False)
 
+    # CAUTION: slow
     @property
     def order_parameters(self) -> np.ndarray:
         """Get order parameters array, automatically syncing from list if needed."""
@@ -271,6 +272,7 @@ class OrderParametersHistory:
         """Set order parameters array."""
         self._order_parameters = value
 
+    # CAUTION: slow
     @property
     def fluctuations(self) -> np.ndarray:
         """Get fluctuations array, automatically syncing from list if needed."""
@@ -283,6 +285,7 @@ class OrderParametersHistory:
         """Set fluctuations array."""
         self._fluctuations = value
 
+    # CAUTION: slow
     @property
     def stats(self) -> np.ndarray:
         """Get stats array, automatically syncing from list if needed."""
