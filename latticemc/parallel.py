@@ -4,218 +4,41 @@ import logging
 import multiprocessing as mp
 import threading
 import time
-from collections import defaultdict, namedtuple
-from ctypes import c_double
+from collections import defaultdict
 from decimal import Decimal
 from enum import Enum
-from typing import Dict, List, Optional, Tuple, cast
+from typing import Dict, List, Optional, Tuple, cast, Any
 
 import numpy as np
 
-from . import simulation_numba
 from .definitions import DefiningParameters, LatticeState, OrderParametersHistory
-from .failsafe import failsafe_save_simulation
+from .simulation_process import MessageType, ParallelTemperingParameters, SimulationProcess
 from .tensorboard_logger import TensorBoardLogger
-from .updaters import CallbackUpdater, FluctuationsCalculator, OrderParametersCalculator, Updater
 
 logger = logging.getLogger(__name__)
 
 
-class MessageType(Enum):
-    """
-    The type of message that `SimulationProcess` can send to `SimulationRunner`.
+class ProgressBarMode(Enum):
+    """Progress bar display modes for parallel simulations."""
 
-    All messages have the format of a tuple: `(MessageType, self.index, payload)`
-    """
-
-    OrderParameters = 1
-    Fluctuations = 2
-    State = 3
-    ParallelTemperingSignUp = 4
-    Error = 5
-    Finished = 6
-    Ping = 7
-
-
-ParallelTemperingParameters = namedtuple('ParallelTemperingParameters', ['parameters', 'energy', 'pipe'])
-
-
-class SimulationProcess(mp.Process):
-    """
-    Process representing one simulation over a lattice of particles.
-
-    When parallel tempering is enabled, does not necessarily mean a
-    particular configuration of parameters. Otherwise the parameters
-    are constant.
-    """
-
-    def __init__(self,
-                 index: int,
-                 queue: mp.Queue,
-                 initial_state: LatticeState,
-                 cycles: int,
-                 report_order_parameters_every: int = 1000,
-                 report_fluctuations_every: int = 1000,
-                 report_state_every: int = 1000,
-                 fluctuations_window: int = 1000,
-                 per_state_updaters: List[Updater] = [],
-                 parallel_tempering_interval: Optional[int] = None,
-                 exchange_barrier=None
-                 ) -> None:
-        super().__init__()
-        self.index = index
-        self.queue = queue
-        self.state = initial_state
-        self.cycles = cycles
-        self.report_order_parameters_every = report_order_parameters_every
-        self.report_fluctuations_every = report_fluctuations_every
-        self.report_state_every = report_state_every
-        self.per_state_updaters = per_state_updaters
-        self.fluctuations_window = fluctuations_window
-        self.parallel_tempering_interval = parallel_tempering_interval
-        self.exchange_barrier = exchange_barrier
-
-        self.running = mp.Value('i', 1)
-        self.temperature = mp.Value(c_double, float(self.state.parameters.temperature))
-
-        # how many data points truly belong to the present configuration
-        # is important when parallel tempering is enabled
-        self._relevant_history_length = 0
-        self.local_history = OrderParametersHistory()
-
-    def run(self) -> None:
-        """Execute the simulation process."""
-        # self.report_order_parameters_every doesn't mean that there is fewer samples in history
-        # only that it is copied to the governing thread at most that often
-        order_parameters_broadcaster = CallbackUpdater(
-            callback=lambda _: self._broadcast_order_parameters(),
-            how_often=self.report_order_parameters_every,
-            since_when=self.report_order_parameters_every
-        )
-        # self.report_fluctuations_every doesn't mean that there is fewer samples in history
-        # only that it is copied to the governing thread at most that often
-        fluctuations_broadcaster = CallbackUpdater(
-            callback=lambda _: self._broadcast_fluctuations(),
-            how_often=self.report_fluctuations_every,
-            since_when=self.fluctuations_window
-        )
-        state_broadcaster = CallbackUpdater(
-            callback=lambda _: self._broadcast_state(),
-            how_often=self.report_state_every,
-            since_when=self.report_state_every
-        )
-        ping_updater = CallbackUpdater(
-            callback=lambda _: self._send_ping(),
-            how_often=5,  # Send ping every 5 iterations
-            since_when=0
-        )
-
-        order_parameters_calculator = OrderParametersCalculator(self.local_history, how_often=1, since_when=0)
-        fluctuations_calculator = FluctuationsCalculator(self.local_history, window=self.fluctuations_window, how_often=1, since_when=self.fluctuations_window)
-        per_state_updaters = [
-            order_parameters_calculator,
-            fluctuations_calculator,
-            *self.per_state_updaters,
-            order_parameters_broadcaster,
-            fluctuations_broadcaster,
-            state_broadcaster,
-            ping_updater
-        ]
-
-        if self.parallel_tempering_interval is not None and self.exchange_barrier is not None:
-            parallel_tempering_updater = CallbackUpdater(
-                callback=lambda _: self._parallel_tempering(),
-                how_often=self.parallel_tempering_interval,
-                since_when=self.parallel_tempering_interval
-            )
-            per_state_updaters.append(parallel_tempering_updater)
-
-        # MAIN SIMULATION LOOP
-        try:
-            for _ in range(self.cycles):
-                simulation_numba.do_lattice_state_update(self.state)
-                self._relevant_history_length += 1
-                for u in per_state_updaters:
-                    u.perform(self.state)
-        except Exception as e:
-            self.queue.put((MessageType.Error, self.index, (self.state.parameters, e)))
-            failsafe_save_simulation(e, self.state, self.local_history)
-
-        # Mark as finished - this will prevent future barrier waits
-        self.running.value = 0
-
-        self.queue.put((MessageType.State, self.index, self.state))
-        self.queue.put((MessageType.Finished, self.index, self.state.parameters))
-
-    def _broadcast_order_parameters(self) -> None:
-        """Publish at most `self._relevant_history_length` order parameters from history to the governing thread."""
-        self.queue.put((MessageType.OrderParameters, self.index,
-                        (self.state.parameters,
-                         self.local_history.order_parameters[-min(self._relevant_history_length, self.report_order_parameters_every):])))
-
-    def _broadcast_fluctuations(self) -> None:
-        """Publish at most `self._relevant_history_length` fluctuation values from history to the governing thread."""
-        self.queue.put((MessageType.Fluctuations, self.index,
-                        (self.state.parameters,
-                         self.local_history.fluctuations[-min(self._relevant_history_length, self.report_fluctuations_every):])))
-
-    def _broadcast_state(self):
-        """Publish the current Lattice State to the governing thread."""
-        self.queue.put((MessageType.State, self.index, self.state))
-
-    def _send_ping(self) -> None:
-        """Send a ping message to indicate the process is alive and healthy."""
-        self.queue.put((MessageType.Ping, self.index, self.state.iterations))
-
-    def _parallel_tempering(self) -> None:
-        """Perform synchronized parallel tempering update using barrier synchronization."""
-        # Check if we're still supposed to be running - if not, skip parallel tempering
-        if not self.running.value:
-            logger.debug(f'SimulationProcess[{self.index}, {self.state.parameters}]: Skipping parallel tempering - simulation ending')
-            return
-
-        # Wait at barrier to synchronize all replicas before attempting exchange
-        if self.exchange_barrier is not None:
-            logger.debug(f'SimulationProcess[{self.index}, {self.state.parameters}]: Waiting at exchange barrier')
-            try:
-                self.exchange_barrier.wait(timeout=30)  # Add timeout to prevent indefinite hanging
-            except Exception as e:
-                # Handle barrier broken, timeout, or other barrier-related exceptions
-                logger.debug(f'SimulationProcess[{self.index}, {self.state.parameters}]: Barrier exception ({e}), skipping parallel tempering')
-                return
-
-        # energy needs to be scaled by number of particles (total system energy not per-particle)
-        # the energy stored in order parameters is a lattice average
-        energy = self.local_history.order_parameters['energy'][-1] * cast(np.ndarray, self.state.lattice.particles).size
-        our, theirs = mp.Pipe()
-        self.queue.put((MessageType.ParallelTemperingSignUp, self.index, ParallelTemperingParameters(
-            parameters=self.state.parameters, energy=energy, pipe=theirs)))
-
-        # wait for decision in governing thread
-        if not our.poll(30):
-            logger.warning(f'SimulationProcess[{self.index}, {self.state.parameters}]: No parallel tempering data to exchange')
-            return
-        parameters = our.recv()
-
-        logger.debug(f'SimulationProcess[{self.index}, {self.state.parameters}]: Received parameters for exchange: {parameters}')
-
-        if parameters != self.state.parameters:
-            # broadcast what we can
-            self._broadcast_order_parameters()
-            self._broadcast_fluctuations()
-            self._broadcast_state()
-
-            # parameter change
-            with self.temperature.get_lock():
-                self.state.parameters = parameters
-                self.temperature.value = float(parameters.temperature)
-
-            # reset the number of results that can be safely broadcasted as coming from this configuration
-            self._relevant_history_length = 0
+    NONE = "none"
+    CONSOLE = "console"
+    NOTEBOOK = "notebook"
 
 
 class SimulationRunner(threading.Thread):
-    """Thread that manages multiple simulation processes."""
+    """
+    Thread that manages multiple simulation processes.
+
+    Args
+    ----
+        initial_states: List of initial states for each simulation process
+        order_parameters_history: Dictionary to store results from each process
+        cycles: Number of Monte Carlo steps each process should perform
+        tensorboard_log_dir: Optional directory for TensorBoard logging
+        parallel_tempering_interval: Interval for parallel tempering exchanges
+        progress_bar_mode: Progress bar display mode (NONE, CONSOLE, or NOTEBOOK)
+    """
 
     def __init__(self,
                  initial_states: List[LatticeState],
@@ -224,6 +47,7 @@ class SimulationRunner(threading.Thread):
                  *args,
                  tensorboard_log_dir: Optional[str] = None,
                  parallel_tempering_interval: Optional[int] = None,
+                 progress_bar_mode: ProgressBarMode = ProgressBarMode.CONSOLE,
                  **kwargs) -> None:
         threading.Thread.__init__(self)
 
@@ -245,6 +69,10 @@ class SimulationRunner(threading.Thread):
         # Track process health via ping messages
         self._last_ping_time: Dict[int, float] = {}
         self._ping_timeout = 120.0  # seconds without ping before considering process dead
+
+        # Progress bar support
+        self.progress_bar_mode = progress_bar_mode
+        self._progress_bars: Optional[Dict[str, Any]] = None
 
         # for parallel tempering
         self._temperatures: List[Decimal] = [state.parameters.temperature for state in self.states]
@@ -270,6 +98,80 @@ class SimulationRunner(threading.Thread):
         # Start time for logging
         self._start_time: Optional[float] = None
 
+    def _create_progress_bars(self) -> None:
+        """Create progress bars based on the specified mode."""
+        if self.progress_bar_mode == ProgressBarMode.NONE:
+            return
+
+        try:
+            if self.progress_bar_mode == ProgressBarMode.NOTEBOOK:
+                from tqdm.notebook import tqdm
+            else:  # CONSOLE mode
+                from tqdm import tqdm
+
+            self._progress_bars = {}
+            total_cycles = self.cycles * len(self.states)
+
+            # Create main progress bar
+            main_kwargs = {
+                "total": total_cycles,
+                "desc": "Overall Progress",
+                "unit": "steps"
+            }
+            if self.progress_bar_mode == ProgressBarMode.CONSOLE:
+                main_kwargs["position"] = 0
+
+            self._progress_bars["main"] = tqdm(**main_kwargs)
+
+            # Create per-simulation progress bars
+            for i in range(len(self.states)):
+                temp = float(self.states[i].parameters.temperature)
+                sim_kwargs = {
+                    "total": self.cycles,
+                    "desc": f"Sim {i} (T={temp:.3f})",
+                    "unit": "steps",
+                    "leave": False
+                }
+                if self.progress_bar_mode == ProgressBarMode.CONSOLE:
+                    sim_kwargs["position"] = i + 1
+
+                self._progress_bars[f"sim_{i}"] = tqdm(**sim_kwargs)
+
+        except ImportError as e:
+            logger.warning(f"tqdm not available ({e}), progress bars disabled")
+            self.progress_bar_mode = ProgressBarMode.NONE
+
+    def _update_progress_bars(self) -> None:
+        """Update all progress bars based on current progress_meters."""
+        if self._progress_bars is None:
+            return
+
+        # Update main progress bar
+        if "main" in self._progress_bars:
+            total_progress = sum(self.progress_meters.values())
+            self._progress_bars["main"].n = total_progress
+            self._progress_bars["main"].refresh()
+
+        # Update individual simulation progress bars
+        for sim_index, progress in self.progress_meters.items():
+            sim_key = f"sim_{sim_index}"
+            if sim_key in self._progress_bars:
+                self._progress_bars[sim_key].n = progress
+                self._progress_bars[sim_key].refresh()
+
+    def _cleanup_progress_bars(self) -> None:
+        """Clean up created progress bars."""
+        if self._progress_bars is None:
+            return
+
+        for pbar in self._progress_bars.values():
+            try:
+                pbar.close()
+            except Exception as e:
+                logger.debug(f"Error closing progress bar: {e}")
+
+        self._progress_bars = None
+
     def run(self) -> None:
         """Execute all simulation processes."""
         q: mp.Queue = mp.Queue()
@@ -280,6 +182,9 @@ class SimulationRunner(threading.Thread):
 
         self._start_time = time.time()
         last_logged_time = self._start_time
+
+        # Create progress bars if needed
+        self._create_progress_bars()
 
         # create and start all simulations
         self.simulations = []
@@ -339,6 +244,9 @@ class SimulationRunner(threading.Thread):
                     self.progress_meters[index] = iterations
                     logger.debug(f'SimulationProcess[{index}]: Ping received at iteration {iterations}')
 
+                    # Update progress bars
+                    self._update_progress_bars()
+
             # Check for crashed processes and raise exception if any are found
             try:
                 self._check_for_crashed_processes()
@@ -368,6 +276,9 @@ class SimulationRunner(threading.Thread):
         # Log final temperature plots
         if self.tb_logger:
             self.log_temperature_plots_to_tensorboard(recent_points=self.cycles)
+
+        # Clean up progress bars
+        self._cleanup_progress_bars()
 
     def _check_for_crashed_processes(self) -> None:
         """Check for crashed processes using ping messages and process status."""
@@ -523,6 +434,9 @@ class SimulationRunner(threading.Thread):
         """Terminate all simulation processes."""
         [sim.terminate() for sim in self.simulations]  # type: ignore
         [sim.join() for sim in self.simulations if sim.is_alive()]  # type: ignore
+
+        # Clean up progress bars
+        self._cleanup_progress_bars()
 
     def alive(self) -> bool:
         """Check if any simulation processes are still running."""
