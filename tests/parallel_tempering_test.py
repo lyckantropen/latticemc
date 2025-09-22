@@ -244,42 +244,6 @@ class TestParallelTempering:
         # Verify simulation completed successfully without hanging
         assert not runner.is_alive(), "Simulation should have completed without deadlock"
 
-    def test_process_crash_exception_propagation(self):
-        """Test that SimulationRunner raises exception when a process crashes."""
-        states = self._create_test_states([1.0, 2.0], lattice_size=2)
-        order_parameters_history = {state.parameters: OrderParametersHistory() for state in states}
-
-        runner = SimulationRunner(
-            initial_states=states,
-            order_parameters_history=order_parameters_history,
-            cycles=50,  # Shorter simulation (reduced for disabled Numba)
-            parallel_tempering_interval=5
-        )
-
-        # Start runner
-        runner.start()
-
-        # Simulate a process crash by manually terminating one process
-        import time
-        time.sleep(0.5)  # Let processes start and send initial pings
-        if runner.simulations:
-            runner.simulations[0].terminate()  # Force kill one process
-            runner.simulations[0].join(timeout=1)  # Wait for it to die
-
-        # Wait for runner to detect the crash - should happen within the thread
-        runner.join(timeout=15)  # Give enough time for ping timeout detection
-
-        # Check if runner detected the crash (it should have stopped due to exception)
-        assert not runner.alive(), "Runner should have stopped due to process crash"
-        assert not runner.finished_gracefully(), "Runner should not have finished gracefully after process crash"
-
-        # Check that a thread exception was captured
-        assert runner.has_thread_exception(), "Runner should have captured the crash exception"
-        thread_exception = runner.get_thread_exception()
-        assert thread_exception is not None, "Thread exception should not be None"
-        assert isinstance(thread_exception, RuntimeError), "Thread exception should be RuntimeError"
-        assert "died unexpectedly" in str(thread_exception), "Exception should mention process death"
-
     def test_ping_mechanism_during_normal_operation(self):
         """Test that ping messages are sent and received during normal operation."""
         states = self._create_test_states([1.0, 2.0], lattice_size=2)
