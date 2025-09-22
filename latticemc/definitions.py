@@ -300,31 +300,27 @@ class OrderParametersHistory:
 
     def to_dict(self) -> dict:
         """Convert latest order parameters and fluctuations to dictionary for JSON serialization."""
-        order_params_array = self._get_order_parameters_array()
-        fluctuations_array = self._get_fluctuations_array()
 
         result = {
             'latest_order_parameters': {},
             'latest_fluctuations': {},
             'data_counts': {
-                'order_parameters': len(order_params_array),
-                'fluctuations': len(fluctuations_array)
+                'order_parameters': len(self.order_parameters_list),
+                'fluctuations': len(self.fluctuations_list)
             }
         }
 
         # Add latest order parameters
-        if len(order_params_array) > 0:
-            latest_op = order_params_array[-1]
-            if order_params_array.dtype.names:
-                for field_name in order_params_array.dtype.names:
-                    result['latest_order_parameters'][field_name] = float(latest_op[field_name])  # type: ignore[assignment]
+        if len(self.order_parameters_list) > 0:
+            latest_op = self.order_parameters_list[-1]
+            for field_name in latest_op.dtype.fields.keys():
+                result['latest_order_parameters'][field_name] = float(latest_op[field_name])  # type: ignore[assignment]
 
         # Add latest fluctuations
-        if len(fluctuations_array) > 0:
-            latest_fluct = fluctuations_array[-1]
-            if fluctuations_array.dtype.names:
-                for field_name in fluctuations_array.dtype.names:
-                    result['latest_fluctuations'][field_name] = float(latest_fluct[field_name])  # type: ignore[assignment]
+        if len(self.fluctuations_list) > 0:
+            latest_fluct = self.fluctuations_list[-1]
+            for field_name in latest_fluct.dtype.fields.keys():
+                result['latest_fluctuations'][field_name] = float(latest_fluct[field_name])  # type: ignore[assignment]
 
         return result
 
@@ -431,8 +427,8 @@ class OrderParametersHistory:
 
             if window_op > 0:
                 decorrelated_op = order_params_array[-window_op::decorrelation_interval]
-                for name in gathered_order_parameters.fields.keys():
-                    if name in decorrelated_op.dtype.fields.keys():
+                for name in gathered_order_parameters.fields.keys():  # type: ignore[union-attr]
+                    if name in decorrelated_op.dtype.fields.keys():  # type: ignore[union-attr]
                         decorrelated_avgs_op[name] = np.mean(decorrelated_op[name])
 
         # Process fluctuations if available
@@ -442,8 +438,8 @@ class OrderParametersHistory:
 
             if window_fl > 0:
                 decorrelated_fl = fluctuations_array[-window_fl::decorrelation_interval]
-                for name in gathered_order_parameters.fields.keys():
-                    if name in decorrelated_fl.dtype.fields.keys():
+                for name in gathered_order_parameters.fields.keys():  # type: ignore[union-attr]
+                    if name in decorrelated_fl.dtype.fields.keys():  # type: ignore[union-attr]
                         decorrelated_avgs_fl[name] = np.mean(decorrelated_fl[name])
 
         return decorrelated_avgs_op, decorrelated_avgs_fl

@@ -32,7 +32,7 @@ class Simulation:
                      console progress bar. Use tqdm.notebook.tqdm for Jupyter notebooks.
         working_folder: Optional path to folder for saving simulation state and logs.
                        If None, no saving is performed.
-        save_interval: How often to save simulation state and JSON summary (in steps). Default 1000.
+        save_interval: How often to save simulation state and JSON summary (in steps). Default 200.
         auto_recover: Whether to attempt recovery from saved state. Default False.
     """
 
@@ -43,7 +43,7 @@ class Simulation:
                  per_state_updaters: Optional[List[Updater]] = None,
                  progress_bar: Optional[Any] = None,
                  working_folder: Optional[str] = None,
-                 save_interval: int = 100,
+                 save_interval: int = 200,
                  auto_recover: bool = False) -> None:
         self.state = initial_state
         self.cycles = cycles

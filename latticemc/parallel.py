@@ -30,33 +30,86 @@ class ProgressBarMode(Enum):
 
 class SimulationRunner(threading.Thread):
     """
-    Thread that manages multiple simulation processes.
+    Thread that manages multiple simulation processes with parallel tempering support.
 
-    Args
-    ----
-        initial_states
-            List of initial states for each simulation process
-        order_parameters_history
-            Dictionary to store results from each process
-        cycles
-            Number of Monte Carlo steps each process should perform
-        parallel_tempering_interval
-            Interval for parallel tempering exchanges
-        progress_bar_mode
-            Progress bar display mode (NONE, CONSOLE, or NOTEBOOK)
-        working_folder
-            Optional path to folder for saving simulation states and logs.
-            Each process gets its own subfolder. If None, no saving
-            is performed. TensorBoard logs are automatically saved to
-            working_folder/tensorboard.
-        save_interval
-            How often to save simulation state and JSON summary (in
-            steps). Default 50. (This is for simulation-level saving, per-parameter
-            saving is done whenever new data is received, which is governed by
-            `report_order_parameters_every`, `report_fluctuations_every`, and
-            `report_state_every` in SimulationProcess.)
-        auto_recover
-            Whether to attempt recovery from saved state. Default False.
+    SimulationRunner coordinates multiple SimulationProcess instances, handles inter-process
+    communication, manages parallel tempering exchanges, and provides comprehensive data
+    logging and visualization through TensorBoard integration.
+
+    Parameters
+    ----------
+    initial_states : List[LatticeState]
+        List of initial lattice states for each simulation process. Each state should
+        have different parameters (typically temperature) for parallel tempering.
+    order_parameters_history : Dict[DefiningParameters, OrderParametersHistory]
+        Dictionary to collect and store results from each parameter set. Organized
+        by DefiningParameters for efficient analysis across temperature exchanges.
+    cycles : int
+        Number of Monte Carlo steps each process should perform.
+    parallel_tempering_interval : Optional[int], default=None
+        Interval (in steps) for parallel tempering exchanges. If None, parallel
+        tempering is disabled and processes run independently.
+    progress_bar_mode : ProgressBarMode, default=ProgressBarMode.CONSOLE
+        Progress bar display mode: NONE (no bars), CONSOLE (terminal), or
+        NOTEBOOK (Jupyter notebook compatible).
+    working_folder : Optional[str], default=None
+        Path to folder for saving simulation states, data, and logs. Creates
+        organized structure with process folders, parameter folders, and plots.
+        If None, no file saving is performed.
+    save_interval : int, default=200
+        How often to save simulation state and data (in steps). Controls both
+        process-level and parameter-level saving frequency.
+    auto_recover : bool, default=False
+        Whether to attempt recovery from previously saved state when working_folder
+        is specified and recovery markers are found.
+    plot_save_interval_sec : float, default=60.0
+        How often to generate and save temperature plots (in seconds of real time).
+        Plots are saved to both TensorBoard and working folder if available.
+    plot_recent_points : int, default=1000
+        Number of recent data points to use for temperature plot generation.
+        Larger values provide more statistical accuracy but slower plotting.
+    **kwargs
+        Additional keyword arguments passed to SimulationProcess instances.
+        See SimulationProcess documentation for supported options.
+
+    Folder Structure Created
+    ------------------------
+    When working_folder is specified, creates the following structure:
+
+    working_folder/
+    ├── tensorboard/                    # TensorBoard logs for real-time visualization
+    ├── plots/                          # Temperature-dependent plots
+    │   ├── energy_vs_temperature.png
+    │   └── order_parameter_*_vs_temperature.png
+    ├── logs/                           # Simulation runner logs
+    ├── process_000/, process_001/, ... # Individual process data and states
+    │   ├── data/
+    │   │   ├── order_parameters.npz
+    │   │   └── fluctuations.npz
+    │   ├── states/
+    │   │   └── latest_state.npz
+    │   ├── logs/
+    │   │   └── simulation.log
+    │   └── summary.json
+    └── parameters/                    # Data organized by actual parameter values
+        ├── T0.30_lam0.35_tau1.00/
+        ├── T0.35_lam0.35_tau1.00/
+        └── T1.65_lam0.35_tau1.00/
+            ├── data/
+            │   ├── order_parameters.npz
+            │   └── fluctuations.npz
+            ├── states/
+            │   └── latest_state.npz
+            └── summary.json
+
+    Notes
+    -----
+    - For parallel tempering, provide states with different temperatures
+    - Process communication uses multiprocessing.Queue for thread safety
+    - TensorBoard logging is automatically enabled when working_folder is provided
+    - Temperature plots are generated periodically and saved permanently
+    - All data is organized both by process ID and by actual parameter values
+    - Recovery markers prevent data corruption during simulation restarts
     """
 
     def __init__(self,
@@ -67,8 +120,10 @@ class SimulationRunner(threading.Thread):
                  parallel_tempering_interval: Optional[int] = None,
                  progress_bar_mode: ProgressBarMode = ProgressBarMode.CONSOLE,
                  working_folder: Optional[str] = None,
-                 save_interval: int = 50,
+                 save_interval: int = 200,
                  auto_recover: bool = False,
+                 plot_save_interval_sec: float = 60.0,
+                 plot_recent_points: int = 1000,
                  **kwargs) -> None:
         threading.Thread.__init__(self)
 
@@ -79,6 +134,8 @@ class SimulationRunner(threading.Thread):
         self.kwargs = kwargs
         self.simulations: List[SimulationProcess] = []
         self.progress_meters: Dict[int, int] = defaultdict(lambda: 0)
+        self.plot_save_interval_sec = plot_save_interval_sec
+        self.plot_recent_points = plot_recent_points
 
         # set to False when all processes have started running
         self._starting = True
@@ -322,11 +379,11 @@ class SimulationRunner(threading.Thread):
             if self.parallel_tempering_enabled:
                 self._do_parallel_tempering(pt_ready)
 
-            # Log simulation progress every 10 seconds
+            # Log simulation progress every self.plot_save_interval_sec seconds
             if self.tb_logger:
                 current_time = time.time()
-                if current_time - last_logged_time >= 10.0:
-                    self.save_temperature_plots()
+                if current_time - last_logged_time >= self.plot_save_interval_sec:
+                    self.save_temperature_plots(recent_points=self.plot_recent_points)
                     last_logged_time = current_time
 
         # Close TensorBoard logger
@@ -644,7 +701,7 @@ class SimulationRunner(threading.Thread):
         except Exception as e:
             logger.error(f"Error logging temperatures after exchange to TensorBoard: {e}")
 
-    def save_temperature_plots(self) -> None:
+    def save_temperature_plots(self, recent_points: int = 1000) -> None:
         """
         Save temperature-based plots for energy, order parameters, and fluctuations.
 
@@ -667,7 +724,7 @@ class SimulationRunner(threading.Thread):
             current_step = int(time.time() - (self._start_time or time.time()))
 
             # Create all temperature plots using plot_utils (uses entire history)
-            all_plots = create_all_temperature_plots(self.order_parameters_history)
+            all_plots = create_all_temperature_plots(self.order_parameters_history, recent_points=recent_points)
 
             # Log plots to TensorBoard if available
             if self.tb_logger:
