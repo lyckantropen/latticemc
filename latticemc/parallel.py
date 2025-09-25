@@ -133,11 +133,14 @@ class SimulationRunner(threading.Thread):
         self.states = initial_states
         self.order_parameters_history = order_parameters_history
         self.args = args
-        self.kwargs = kwargs
         self.simulations: List[SimulationProcess] = []
-        self.progress_meters: Dict[int, int] = defaultdict(lambda: 0)
         self.plot_save_interval_sec = plot_save_interval_sec
         self.plot_recent_points = plot_recent_points
+        self.kwargs = kwargs
+        self.progress_bar_mode = progress_bar_mode
+        self.working_folder = working_folder
+        self.save_interval = save_interval
+        self.auto_recover = auto_recover
 
         # set to False when all processes have started running
         self._starting = True
@@ -159,13 +162,10 @@ class SimulationRunner(threading.Thread):
         self._alive_check_interval = 0.01  # Cache alive() result for 10ms
 
         # Progress bar support
-        self.progress_bar_mode = progress_bar_mode
-        self._progress_bars: Optional[Dict[str, Any]] = None
+        self._progress_meters: Dict[int, int] = defaultdict(lambda: 0)  # counting number of iterations per process reported by Ping
+        self._progress_bars: Optional[Dict[str, Any]] = None  # for tqdm objects
 
         # Working folder support
-        self.working_folder = working_folder
-        self.save_interval = save_interval
-        self.auto_recover = auto_recover
 
         # for parallel tempering
         self._temperatures: List[Decimal] = [state.parameters.temperature for state in self.states]
@@ -173,25 +173,25 @@ class SimulationRunner(threading.Thread):
 
         # barrier for synchronization during replica exchange
         # Create barrier if parallel tempering is enabled and there are multiple replicas
-        self.parallel_tempering_enabled = parallel_tempering_interval is not None
+        self._parallel_tempering_enabled = parallel_tempering_interval is not None
         self.kwargs['parallel_tempering_interval'] = parallel_tempering_interval
         self._exchange_barrier = None
-        if self.parallel_tempering_enabled and len(self.states) > 1:
+        if self._parallel_tempering_enabled and len(self.states) > 1:
             self._exchange_barrier = mp.Barrier(len(self.states))
 
         # TensorBoard logging setup - always enabled
-        self.tb_logger: Optional[TensorBoardLogger]
+        self._tb_logger: Optional[TensorBoardLogger]
         try:
             # Use working_folder/tensorboard if working_folder is specified, otherwise use default
             tb_log_dir = None
             if self.working_folder is not None:
                 tb_log_dir = f"{self.working_folder}/tensorboard"
 
-            self.tb_logger = TensorBoardLogger(log_dir=tb_log_dir)
-            logger.info(f"TensorBoard logging enabled, writing to {self.tb_logger.log_dir}")
+            self._tb_logger = TensorBoardLogger(log_dir=tb_log_dir)
+            logger.info(f"TensorBoard logging enabled, writing to {self._tb_logger.log_dir}")
         except Exception as e:
             logger.error(f"Failed to initialize TensorBoard logging: {e}")
-            self.tb_logger = None
+            self._tb_logger = None
 
         # Start time for logging
         self._start_time: Optional[float] = None
@@ -202,7 +202,7 @@ class SimulationRunner(threading.Thread):
         self._states_received_count: Dict[DefiningParameters, int] = defaultdict(int)
 
     def _create_progress_bars(self) -> None:
-        """Create progress bars based on the specified mode."""
+        """Create progress bars (tqdm objects) based on the specified mode."""
         if self.progress_bar_mode == ProgressBarMode.NONE:
             return
 
@@ -245,18 +245,18 @@ class SimulationRunner(threading.Thread):
             self.progress_bar_mode = ProgressBarMode.NONE
 
     def _update_progress_bars(self) -> None:
-        """Update all progress bars based on current progress_meters."""
+        """Update all progress bars (tqdm objects) based on current _progress_meters."""
         if self._progress_bars is None:
             return
 
         # Update main progress bar
         if "main" in self._progress_bars:
-            total_progress = sum(self.progress_meters.values())
+            total_progress = sum(self._progress_meters.values())
             self._progress_bars["main"].n = total_progress
             self._progress_bars["main"].refresh()
 
         # Update individual simulation progress bars
-        for sim_index, progress in self.progress_meters.items():
+        for sim_index, progress in self._progress_meters.items():
             sim_key = f"sim_{sim_index}"
             if sim_key in self._progress_bars:
                 self._progress_bars[sim_key].n = progress
@@ -280,8 +280,8 @@ class SimulationRunner(threading.Thread):
         q: mp.Queue = mp.Queue()
 
         # Log all temperature assignments to TensorBoard
-        if self.tb_logger:
-            self.tb_logger.log_simulation_temperature_assignments(self.states)
+        if self._tb_logger:
+            self._tb_logger.log_simulation_temperature_assignments(self.states)
 
         self._start_time = time.time()
         last_logged_time = self._start_time
@@ -376,7 +376,7 @@ class SimulationRunner(threading.Thread):
                 if message_type == MessageType.Ping:
                     iterations = msg
                     self._last_ping_time[index] = time.time()
-                    self.progress_meters[index] = iterations
+                    self._progress_meters[index] = iterations
                     logger.debug(f'SimulationProcess[{index}]: Ping received at iteration {iterations}')
 
                     # Update progress bars
@@ -399,25 +399,25 @@ class SimulationRunner(threading.Thread):
                     break  # Exit the main loop instead of raising
 
             # Perform parallel tempering if enabled and there are replicas ready
-            if self.parallel_tempering_enabled:
+            if self._parallel_tempering_enabled:
                 self._do_parallel_tempering(pt_ready)
 
             # Log simulation progress every self.plot_save_interval_sec seconds
-            if self.tb_logger:
+            if self._tb_logger:
                 current_time = time.time()
                 if current_time - last_logged_time >= self.plot_save_interval_sec:
-                    self.save_temperature_plots(recent_points=self.plot_recent_points)
+                    self._save_temperature_plots(recent_points=self.plot_recent_points)
                     last_logged_time = current_time
 
         # Close TensorBoard logger
-        if self.tb_logger:
-            self.tb_logger.close()
+        if self._tb_logger:
+            self._tb_logger.close()
 
         # Ensure all processes have finished
         [sim.join() for sim in self.simulations]  # type: ignore
 
         # Save final temperature plots
-        self.save_temperature_plots()
+        self._save_temperature_plots(recent_points=self.cycles, fluctuations_from_history=True)
 
         # Save final data for all parameter sets
         self._save_final_data()
@@ -550,7 +550,7 @@ class SimulationRunner(threading.Thread):
                 logger.debug(f'SimulationRunner: No exchange for unpaired replica {i} (sim {idx}, T={pt_param.parameters.temperature})')
 
         # Log overall statistics and current temperatures to TensorBoard
-        if self.tb_logger:
+        if self._tb_logger:
             # Log current temperature for each process after exchanges using the post-exchange assignments
             self._log_current_temperatures_after_exchange(pt_ready, self._exchange_counter)
 
@@ -675,7 +675,7 @@ class SimulationRunner(threading.Thread):
 
     def _log_order_parameters_to_tensorboard(self, parameters: DefiningParameters, op: np.ndarray) -> None:
         """Log order parameters immediately when received."""
-        if not self.tb_logger:
+        if not self._tb_logger:
             return
 
         try:
@@ -683,17 +683,17 @@ class SimulationRunner(threading.Thread):
             step = len(self.order_parameters_history[parameters].order_parameters_list) if parameters in self.order_parameters_history else None
 
             # Log individual order parameter values for this temperature
-            for field in self.tb_logger.order_parameter_fields:
+            for field in self._tb_logger.order_parameter_fields:
                 if len(op) > 0:
                     value = float(op[-1][field])  # Get the most recent value
-                    self.tb_logger.log_temperature_scalar_auto('order_parameters', field, parameters, value, step)
+                    self._tb_logger.log_temperature_scalar_auto('order_parameters', field, parameters, value, step)
 
         except Exception as e:
             logger.error(f"Error logging order parameters to TensorBoard: {e}")
 
     def _log_fluctuations_to_tensorboard(self, parameters: DefiningParameters, fl: np.ndarray) -> None:
         """Log fluctuations immediately when received."""
-        if not self.tb_logger:
+        if not self._tb_logger:
             return
 
         try:
@@ -701,23 +701,23 @@ class SimulationRunner(threading.Thread):
             step = len(self.order_parameters_history[parameters].fluctuations_list) if parameters in self.order_parameters_history else None
 
             # Log individual fluctuation values for this temperature
-            for field in self.tb_logger.order_parameter_fields:
+            for field in self._tb_logger.order_parameter_fields:
                 if len(fl) > 0:
                     value = float(fl[-1][field])  # Get the most recent value
-                    self.tb_logger.log_temperature_scalar_auto('fluctuations', field, parameters, value, step)
+                    self._tb_logger.log_temperature_scalar_auto('fluctuations', field, parameters, value, step)
 
         except Exception as e:
             logger.error(f"Error logging fluctuations to TensorBoard: {e}")
 
     def _log_state_to_tensorboard(self, state: LatticeState) -> None:
         """Log state information (energy, acceptance rates) immediately when received."""
-        if not self.tb_logger:
+        if not self._tb_logger:
             return
 
         try:
             # Log lattice energy
             energy = state.lattice_averages['energy']
-            self.tb_logger.log_temperature_scalar_auto('lattice_averages', 'energy', state.parameters, float(energy), state.iterations)
+            self._tb_logger.log_temperature_scalar_auto('lattice_averages', 'energy', state.parameters, float(energy), state.iterations)
 
             # Log acceptance rates
             if state.iterations > 0:
@@ -729,15 +729,15 @@ class SimulationRunner(threading.Thread):
                 orientation_rate = state.accepted_x / particles_size
                 parity_rate = state.accepted_p / particles_size
 
-                self.tb_logger.log_temperature_scalar_auto('acceptance_rates', 'orientation', state.parameters, orientation_rate * 100, state.iterations)
-                self.tb_logger.log_temperature_scalar_auto('acceptance_rates', 'parity', state.parameters, parity_rate * 100, state.iterations)
+                self._tb_logger.log_temperature_scalar_auto('acceptance_rates', 'orientation', state.parameters, orientation_rate * 100, state.iterations)
+                self._tb_logger.log_temperature_scalar_auto('acceptance_rates', 'parity', state.parameters, parity_rate * 100, state.iterations)
 
         except Exception as e:
             logger.error(f"Error logging state to TensorBoard: {e}")
 
     def _log_current_temperatures_after_exchange(self, pt_ready: List[Tuple[int, ParallelTemperingParameters]], step: Optional[int] = None) -> None:
         """Log current temperature for each simulation process after parallel tempering exchange."""
-        if not self.tb_logger:
+        if not self._tb_logger:
             return
 
         try:
@@ -745,11 +745,11 @@ class SimulationRunner(threading.Thread):
             # The pt_ready list contains (simulation_index, ParallelTemperingParameters) for each process
             for sim_index, pt_param in pt_ready:
                 current_temp = float(pt_param.parameters.temperature)
-                self.tb_logger.log_simulation_temperature_after_exchange_auto(sim_index, current_temp, step)
+                self._tb_logger.log_simulation_temperature_after_exchange_auto(sim_index, current_temp, step)
         except Exception as e:
             logger.error(f"Error logging temperatures after exchange to TensorBoard: {e}")
 
-    def save_temperature_plots(self, recent_points: int = 1000) -> None:
+    def _save_temperature_plots(self, recent_points: int = 1000, fluctuations_from_history: bool = False) -> None:
         """
         Save temperature-based plots for energy, order parameters, and fluctuations.
 
@@ -772,17 +772,20 @@ class SimulationRunner(threading.Thread):
             current_step = int(time.time() - (self._start_time or time.time()))
 
             # Create all temperature plots using plot_utils (uses entire history)
-            all_plots = create_all_temperature_plots(self.order_parameters_history, recent_points=recent_points)
+            all_plots = create_all_temperature_plots(
+                self.order_parameters_history,
+                recent_points=recent_points,
+                fluctuations_from_history=fluctuations_from_history)
 
             # Log plots to TensorBoard if available
-            if self.tb_logger:
+            if self._tb_logger:
                 for plot_name, img in all_plots.items():
                     img_array = np.array(img)
                     # TensorBoard expects CHW format (Color, Height, Width)
                     if len(img_array.shape) == 3:
                         img_array = img_array.transpose(2, 0, 1)  # HWC -> CHW
                     tag = f'{plot_name}_vs_temperature'
-                    self.tb_logger.writer.add_image(tag, img_array, current_step, dataformats='CHW')
+                    self._tb_logger.writer.add_image(tag, img_array, current_step, dataformats='CHW')
 
                 logger.debug(f"Temperature-based plots logged to TensorBoard at step {current_step}")
 
@@ -841,7 +844,7 @@ class SimulationRunner(threading.Thread):
         except Exception as e:
             logger.error(f"Error saving order parameters for {parameters}: {e}")
 
-    def _save_fluctuations(self, parameters: DefiningParameters) -> None:
+    def _save_fluctuations(self, parameters: DefiningParameters, fluctuations_from_history: bool = False) -> None:
         """Save fluctuations for a specific parameter set."""
         if self.working_folder is None:
             return
@@ -857,7 +860,7 @@ class SimulationRunner(threading.Thread):
             # Get fluctuations history for this parameter set
             history = self.order_parameters_history[parameters]
             if history and len(history.fluctuations_list) > 0:
-                history.save_to_npz(fluctuations_path=str(paths['fluctuations']))
+                history.save_to_npz(fluctuations_path=str(paths['fluctuations']), fluctuations_from_history=fluctuations_from_history)
                 logger.debug(f"Saved fluctuations for {parameters} to {paths['fluctuations']}")
 
         except Exception as e:
@@ -971,7 +974,7 @@ class SimulationRunner(threading.Thread):
         for parameters in self.order_parameters_history.keys():
             try:
                 self._save_order_parameters(parameters)
-                self._save_fluctuations(parameters)
+                self._save_fluctuations(parameters, fluctuations_from_history=True)
                 self._save_state(parameters)
                 self._save_parameter_summary(parameters)
                 logger.info(f"Saved final data for parameters {parameters.get_folder_name()}")

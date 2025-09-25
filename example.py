@@ -113,7 +113,7 @@ setup_file_logging(working_folder, simulation_id)
 
 simulation = Simulation(
     initial_state=initial_state,
-    cycles=1000,  # Number of Monte Carlo steps
+    cycles=200,  # Number of Monte Carlo steps
     fluctuations_window=100,  # Window size for fluctuations calculation
     per_state_updaters=cast(List[Updater], additional_updaters),
     working_folder=working_folder,  # Enable automatic saving

@@ -1,6 +1,7 @@
 """Update mechanisms for simulation state tracking and analysis."""
 
 from abc import abstractmethod
+from typing import Optional
 
 import numpy as np
 
@@ -16,14 +17,17 @@ class Updater:
     The user can schedule this to be run every defined number of iterations.
     """
 
-    def __init__(self, how_often, since_when, print_every=None):
+    def __init__(self, how_often: int, since_when: int, until: Optional[int] = None, print_every: Optional[int] = None):
         self.how_often = how_often
         self.since_when = since_when
+        self.until = until
         self.last_value = None
         self.print_every = print_every
 
     def perform(self, state: LatticeState):
         """Execute the update if conditions are met and optionally print results."""
+        if self.until is not None and state.iterations > self.until:
+            return
         if state.iterations >= self.since_when and state.iterations % self.how_often == 0:
             self.last_value = self.update(state)
             if self.print_every is not None and state.iterations % self.print_every == 0:
@@ -65,10 +69,11 @@ class OrderParametersCalculator(Updater):
 class FluctuationsCalculator(Updater):
     """Calculate fluctuations of order parameters over a sliding window."""
 
-    def __init__(self, order_parameters_history: OrderParametersHistory, *args, window=1000, **kwargs):
+    def __init__(self, order_parameters_history: OrderParametersHistory, *args, window: int = 1000, decorrelation_interval: int = 10, **kwargs):
         super().__init__(*args, **kwargs)
         self.order_parameters_history = order_parameters_history
         self.window = window
+        self.decorrelation_interval = decorrelation_interval
 
     def update(self, state):
         """Calculate fluctuations for recent order parameters."""
@@ -76,10 +81,10 @@ class FluctuationsCalculator(Updater):
         if gathered_order_parameters.fields is not None:
             # Get current order parameters array for fluctuation calculation
             order_params_array = self.order_parameters_history._get_order_parameters_array()
-            window = min(self.window, len(self.order_parameters_history.order_parameters))
+            window = min(self.window, order_params_array.size)
             for name in gathered_order_parameters.fields.keys():
                 particles_size = state.lattice.particles.size if state.lattice.particles is not None else 1
-                fluct = particles_size * fluctuation(order_params_array[name][-window:])
+                fluct = particles_size * fluctuation(order_params_array[name][-window::self.decorrelation_interval])
                 fluctuations[name] = fluct
 
         self.order_parameters_history.append_fluctuations(fluctuations)

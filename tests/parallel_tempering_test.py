@@ -68,7 +68,7 @@ class TestParallelTempering:
         temperatures = [1.0, 1.5, 2.0, 2.5]
         states = self._create_test_states(temperatures)
 
-        order_parameters_history = {state.parameters: OrderParametersHistory() for state in states}
+        order_parameters_history = {state.parameters: OrderParametersHistory(state.lattice.size) for state in states}
 
         runner = SimulationRunner(
             initial_states=states,
@@ -86,7 +86,7 @@ class TestParallelTempering:
         temperatures = [1.0, 2.0]
         states = self._create_test_states(temperatures)
 
-        order_parameters_history = {state.parameters: OrderParametersHistory() for state in states}
+        order_parameters_history = {state.parameters: OrderParametersHistory(state.lattice.size) for state in states}
 
         # Test with parallel tempering enabled
         runner = SimulationRunner(
@@ -104,7 +104,7 @@ class TestParallelTempering:
         """Test that no barrier is created when parallel tempering is disabled."""
         states = self._create_test_states([1.0, 2.0])
 
-        order_parameters_history = {state.parameters: OrderParametersHistory() for state in states}
+        order_parameters_history = {state.parameters: OrderParametersHistory(state.lattice.size) for state in states}
 
         # Test without parallel tempering
         runner = SimulationRunner(
@@ -121,7 +121,7 @@ class TestParallelTempering:
         """Test that no barrier is created with only one replica."""
         states = self._create_test_states([1.0])  # Only one temperature
 
-        order_parameters_history = {state.parameters: OrderParametersHistory() for state in states}
+        order_parameters_history = {state.parameters: OrderParametersHistory(state.lattice.size) for state in states}
 
         runner = SimulationRunner(
             initial_states=states,
@@ -139,7 +139,7 @@ class TestParallelTempering:
         temperatures = [1.0, 2.0]  # Just two temperatures for simplicity
         states = self._create_test_states(temperatures, lattice_size=2)  # Very small lattice
 
-        order_parameters_history = {state.parameters: OrderParametersHistory() for state in states}
+        order_parameters_history = {state.parameters: OrderParametersHistory(state.lattice.size) for state in states}
 
         runner = SimulationRunner(
             initial_states=states,
@@ -177,7 +177,7 @@ class TestParallelTempering:
         temperatures = [1.0, 1.5, 2.0]
         states = self._create_test_states(temperatures)
 
-        order_parameters_history = {state.parameters: OrderParametersHistory() for state in states}
+        order_parameters_history = {state.parameters: OrderParametersHistory(state.lattice.size) for state in states}
 
         runner = SimulationRunner(
             initial_states=states,
@@ -215,7 +215,7 @@ class TestParallelTempering:
         temperatures = [1.0, 2.0, 3.0]
         states = self._create_test_states(temperatures, lattice_size=2)  # Small lattice for speed
 
-        order_parameters_history = {state.parameters: OrderParametersHistory() for state in states}
+        order_parameters_history = {state.parameters: OrderParametersHistory(state.lattice.size) for state in states}
 
         # Create runner with parallel tempering and frequent exchanges to increase chance of edge case
         runner = SimulationRunner(
@@ -247,7 +247,7 @@ class TestParallelTempering:
     def test_ping_mechanism_during_normal_operation(self):
         """Test that ping messages are sent and received during normal operation."""
         states = self._create_test_states([1.0, 2.0], lattice_size=2)
-        order_parameters_history = {state.parameters: OrderParametersHistory() for state in states}
+        order_parameters_history = {state.parameters: OrderParametersHistory(state.lattice.size) for state in states}
 
         runner = SimulationRunner(
             initial_states=states,

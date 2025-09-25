@@ -47,7 +47,7 @@ class TestDefinitionsJSONSerialization(TestCase):
         self.state.lattice_averages = sample_averages
 
         # Create test order parameters history
-        self.history = OrderParametersHistory()
+        self.history = OrderParametersHistory(self.lattice.size)
         sample_ops = np.array([
             (1.5, 0.8, 0.3, 0.5, 0.7, 0.9),
             (1.6, 0.82, 0.32, 0.52, 0.72, 0.92),
@@ -184,7 +184,7 @@ class TestDefinitionsNPZSerialization(TestCase):
         self.state.lattice_averages = sample_averages
 
         # Create test order parameters history
-        self.history = OrderParametersHistory()
+        self.history = OrderParametersHistory(self.lattice.size)
         sample_ops = np.array([
             (2.1, 0.9, 0.4, 0.6, 0.8, 1.0),
             (2.2, 0.91, 0.41, 0.61, 0.81, 1.01)
@@ -313,7 +313,7 @@ class TestDefinitionsNPZSerialization(TestCase):
         self.assertTrue(Path(fluct_path).exists())
 
         # Test loading
-        new_history = OrderParametersHistory()
+        new_history = OrderParametersHistory(self.lattice.size)
         new_history.load_from_npz(
             order_parameters_path=op_path,
             fluctuations_path=fluct_path
@@ -339,7 +339,7 @@ class TestDefinitionsNPZSerialization(TestCase):
         self.assertTrue(Path(op_path).exists())
 
         # Load into new history
-        new_history = OrderParametersHistory()
+        new_history = OrderParametersHistory(self.lattice.size)
         new_history.load_from_npz(order_parameters_path=op_path, fluctuations_path=None)
 
         # Check that only order parameters were loaded

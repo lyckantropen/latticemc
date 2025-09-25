@@ -94,7 +94,7 @@ def main():
     states = create_example_states()
 
     # Create order parameters history dictionary
-    order_parameters_history = {state.parameters: OrderParametersHistory() for state in states}
+    order_parameters_history = {state.parameters: OrderParametersHistory(state.lattice.size) for state in states}
 
     print("Setting up synchronized parallel tempering simulation...")
     print("- Replica exchange will be attempted every 100 iterations")

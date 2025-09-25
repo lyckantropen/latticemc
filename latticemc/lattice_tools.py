@@ -45,7 +45,7 @@ def initialize_partially_ordered(lattice: Lattice, x: Optional[Float32[np.ndarra
 
     Given initial orientation, perturb the orientations using random
     4-vectors of radius 0.02. Given the initial parity, initialize
-    25% of particles with random parity. Optionally, starting values
+    25% of particles with opposite parity. Optionally, starting values
     for the orientation and parity can be specified.
     """
     if lattice.particles is None:

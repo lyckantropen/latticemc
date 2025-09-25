@@ -8,6 +8,8 @@ from typing import Any, Dict, List, Optional, Tuple
 import numpy as np
 from jaxtyping import Shaped
 
+from .statistical import fluctuation
+
 logger = logging.getLogger(__name__)
 
 # per-particle degrees of freedom
@@ -79,6 +81,12 @@ class Lattice:
         self.properties = np.zeros((self.X, self.Y, self.Z), dtype=particle_props)
         self.properties['index'] = np.array(
             list(np.ndindex((self.X, self.Y, self.Z)))).reshape(self.X, self.Y, self.Z, 3)
+
+    @property
+    def size(self) -> int:
+        if self.particles is not None:
+            return self.particles.size
+        return 0
 
     def to_npz_dict(self) -> dict:
         """Convert lattice data to dictionary for NPZ file saving."""
@@ -250,6 +258,7 @@ class LatticeState:
 class OrderParametersHistory:
     """Values of order parameters, fluctuation of order parameters and simulation statistics as a function of time."""
 
+    n_particles: int
     _order_parameters: Shaped[np.ndarray, "..."] = field(default_factory=lambda: np.empty(0, dtype=gathered_order_parameters))
     _fluctuations: Shaped[np.ndarray, "..."] = field(default_factory=lambda: np.empty(0, dtype=gathered_order_parameters))
     _stats: Shaped[np.ndarray, "..."] = field(default_factory=lambda: np.empty(0, dtype=simulation_stats))
@@ -260,6 +269,7 @@ class OrderParametersHistory:
     stats_list: List[Shaped[np.ndarray, "1"]] = field(default_factory=list, init=False)
 
     # CAUTION: slow
+
     @property
     def order_parameters(self) -> np.ndarray:
         """Get order parameters array, automatically syncing from list if needed."""
@@ -339,13 +349,17 @@ class OrderParametersHistory:
         return result
 
     def save_to_npz(self, order_parameters_path: Optional[str] = None,
-                    fluctuations_path: Optional[str] = None) -> None:
+                    fluctuations_path: Optional[str] = None,
+                    fluctuations_from_history: bool = False) -> None:
         """Save order parameters and fluctuations to NPZ files."""
         import numpy as np
 
         # Get current arrays from lists or fallback to existing arrays
         order_params_array = self._get_order_parameters_array()
-        fluctuations_array = self._get_fluctuations_array()
+        if fluctuations_from_history:
+            fluctuations_array = self.calculate_decorrelated_fluctuations()
+        else:
+            fluctuations_array = self._get_fluctuations_array()
 
         if order_parameters_path and len(order_params_array) > 0:
             np.savez_compressed(order_parameters_path, order_parameters=order_params_array)
@@ -424,7 +438,7 @@ class OrderParametersHistory:
                                         limit_history: Optional[int] = None,
                                         decorrelation_interval: int = 10
                                         ) -> Tuple[Shaped[np.ndarray, "1"], Shaped[np.ndarray, "1"]]:
-        """Calculate decorrelated averages of order parameters over a sliding window."""
+        """Calculate decorrelated averages of order parameters."""
         assert gathered_order_parameters.fields is not None
 
         # Get current arrays from lists
@@ -451,9 +465,35 @@ class OrderParametersHistory:
             window_fl = min(window_fl, len(fluctuations_array))  # Don't exceed available data
 
             if window_fl > 0:
-                decorrelated_fl = fluctuations_array[-window_fl::decorrelation_interval]
+                # fluctuations are already decorrelated, just take the mean over the window
                 for name in gathered_order_parameters.fields.keys():  # type: ignore[union-attr]
-                    if name in decorrelated_fl.dtype.fields.keys():  # type: ignore[union-attr]
-                        decorrelated_avgs_fl[name] = np.mean(decorrelated_fl[name])
+                    if name in fluctuations_array.dtype.fields.keys():  # type: ignore[union-attr]
+                        decorrelated_avgs_fl[name] = np.mean(fluctuations_array[name])
 
         return decorrelated_avgs_op, decorrelated_avgs_fl
+
+    def calculate_decorrelated_fluctuations(self,
+                                            limit_history: Optional[int] = None,
+                                            decorrelation_interval: int = 10
+                                            ) -> Shaped[np.ndarray, "1"]:
+        """Calculate decorrelated fluctuation of order parameters directly from order parameter history."""
+        assert gathered_order_parameters.fields is not None
+
+        # Get current arrays from lists
+        order_params_array = self._get_order_parameters_array()
+
+        decorrelated_fluctuation = np.zeros(1, dtype=gathered_order_parameters)
+
+        # Process order parameters if available
+        if len(order_params_array) > 0:
+            window_op = limit_history if limit_history is not None else len(order_params_array)
+            window_op = min(window_op, len(order_params_array))  # Don't exceed available data
+
+            if window_op > 0:
+                decorrelated_op = order_params_array[-window_op::decorrelation_interval]
+                for name in gathered_order_parameters.fields.keys():  # type: ignore[union-attr]
+                    if name in decorrelated_op.dtype.fields.keys():  # type: ignore[union-attr]
+                        fluct = fluctuation(decorrelated_op[name]) * self.n_particles
+                        decorrelated_fluctuation[name] = fluct
+
+        return decorrelated_fluctuation

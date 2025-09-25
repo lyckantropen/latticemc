@@ -58,7 +58,7 @@ class Simulation:
         self.save_interval = save_interval
         self.auto_recover = auto_recover
 
-        self.local_history = OrderParametersHistory()
+        self.local_history = OrderParametersHistory(self.state.lattice.size)
         self.current_step = 0
 
         # Track how many steps are relevant for current configuration
@@ -157,7 +157,7 @@ class Simulation:
             self.local_history,
             window=self.fluctuations_window,
             how_often=self.fluctuations_window // 10,  # potentially O(n^2) so less often
-            since_when=self.fluctuations_window
+            since_when=self.fluctuations_window // 10
         )
         logger.debug(f"Added FluctuationsCalculator with window={self.fluctuations_window}")
 
@@ -329,11 +329,9 @@ class Simulation:
 
         try:
             # Save order parameters and fluctuations using OrderParametersHistory methods
-            order_params_array = self.local_history._get_order_parameters_array()
-            fluctuations_array = self.local_history._get_fluctuations_array()
             self.local_history.save_to_npz(
-                order_parameters_path=str(paths['order_parameters']) if len(order_params_array) > 0 else None,
-                fluctuations_path=str(paths['fluctuations']) if len(fluctuations_array) > 0 else None
+                order_parameters_path=str(paths['order_parameters']) if len(self.local_history.order_parameters_list) > 0 else None,
+                fluctuations_path=str(paths['fluctuations']) if len(self.local_history.fluctuations_list) > 0 else None
             )
 
             # Save lattice state using LatticeState method
@@ -364,6 +362,8 @@ class Simulation:
 
         paths = self._get_save_paths()
 
+        final = self.current_step >= self.cycles
+
         try:
             summary: Dict[str, Any] = {
                 'current_step': self.current_step,
@@ -372,6 +372,14 @@ class Simulation:
                 'finished': self.current_step >= self.cycles,
                 'running_time_seconds': time.time() - self.start_time
             }
+
+            if final:
+                op, fl = self.local_history.calculate_decorrelated_averages()
+                fl_from_hist = self.local_history.calculate_decorrelated_fluctuations()
+                summary['final_order_parameters'] = {name: float(op[name]) for name in op.dtype.fields.keys()}  # type: ignore[union-attr]
+                summary['final_fluctuations'] = {name: float(fl[name]) for name in fl.dtype.fields.keys()}  # type: ignore[union-attr]
+                summary['final_fluctuations_from_history'] = {name: float(fl_from_hist[name])
+                                                              for name in fl_from_hist.dtype.fields.keys()}  # type: ignore[union-attr]
 
             # Add order parameters history data using its to_dict method
             history_data = self.local_history.to_dict()
