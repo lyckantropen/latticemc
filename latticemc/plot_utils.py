@@ -70,7 +70,7 @@ def create_temperature_series_plot(tag: str, temperatures: List[float], values: 
 def create_field_data_vs_temperature_plots(
     data_type: str,
     order_parameters_history: Dict[DefiningParameters, OrderParametersHistory],
-    recent_points: int = 1000,
+    recent_points: Optional[int] = 1000,
     decorrelation_interval: int = 10
 ) -> Dict[str, Image.Image]:
     """
@@ -157,7 +157,7 @@ def create_field_data_vs_temperature_plots(
 
 def create_order_parameters_vs_temperature_plots(
     order_parameters_history: Dict[DefiningParameters, OrderParametersHistory],
-    recent_points: int = 1000,
+    recent_points: Optional[int] = 1000,
     decorrelation_interval: int = 10
 ) -> Dict[str, Image.Image]:
     """
@@ -184,7 +184,7 @@ def create_order_parameters_vs_temperature_plots(
 
 def create_fluctuations_vs_temperature_plots(
     order_parameters_history: Dict[DefiningParameters, OrderParametersHistory],
-    recent_points: int = 1000,
+    recent_points: Optional[int] = 1000,
     decorrelation_interval: int = 10,
     fluctuations_from_history: bool = False
 ) -> Dict[str, Image.Image]:
@@ -212,7 +212,7 @@ def create_fluctuations_vs_temperature_plots(
 
 def create_energy_vs_temperature_plot(
     order_parameters_history: Dict[DefiningParameters, OrderParametersHistory],
-    recent_points: int = 1000,
+    recent_points: Optional[int] = 1000,
     decorrelation_interval: int = 10
 ) -> Optional[Image.Image]:
     """
@@ -268,7 +268,7 @@ def create_energy_vs_temperature_plot(
 
 def create_all_temperature_plots(
     order_parameters_history: Dict[DefiningParameters, OrderParametersHistory],
-    recent_points: int = 1000,
+    recent_points: Optional[int] = 1000,
     decorrelation_interval: int = 10,
     fluctuations_from_history: bool = False,
 ) -> Dict[str, Image.Image]:

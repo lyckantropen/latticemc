@@ -417,7 +417,7 @@ class SimulationRunner(threading.Thread):
         [sim.join() for sim in self.simulations]  # type: ignore
 
         # Save final temperature plots
-        self._save_temperature_plots(recent_points=self.cycles, fluctuations_from_history=True)
+        self._save_temperature_plots(recent_points=None, fluctuations_from_history=True)
 
         # Save final data for all parameter sets
         self._save_final_data()
@@ -749,7 +749,7 @@ class SimulationRunner(threading.Thread):
         except Exception as e:
             logger.error(f"Error logging temperatures after exchange to TensorBoard: {e}")
 
-    def _save_temperature_plots(self, recent_points: int = 1000, fluctuations_from_history: bool = False) -> None:
+    def _save_temperature_plots(self, recent_points: Optional[int] = 1000, fluctuations_from_history: bool = False) -> None:
         """
         Save temperature-based plots for energy, order parameters, and fluctuations.
 
@@ -799,6 +799,19 @@ class SimulationRunner(threading.Thread):
                     img.save(plot_path, format='PNG', dpi=(150, 150))
 
                 logger.debug("Temperature-based plots saved to working folder")
+
+                # Also update combined parameter CSV / pickled table on each intermediate plot save
+                try:
+                    from .csv_saver import save_parameter_summary_tables
+                    save_parameter_summary_tables(
+                        working_folder=self.working_folder,
+                        order_parameters_history=self.order_parameters_history,
+                        states=self.states,
+                        recent_points=recent_points,
+                        final=False
+                    )
+                except Exception as e:
+                    logger.error(f"Failed to save parameter tables during plot save: {e}")
 
         except Exception as e:
             logger.error(f"Error saving temperature plots: {e}")
@@ -982,6 +995,19 @@ class SimulationRunner(threading.Thread):
                 logger.error(f"Error saving final data for {parameters}: {e}")
 
         logger.info("Final data saving completed.")
+
+        # Save consolidated final parameter tables (decorrelated averages and fluctuations over full history)
+        try:
+            from .csv_saver import save_parameter_summary_tables
+            save_parameter_summary_tables(
+                working_folder=self.working_folder,
+                order_parameters_history=self.order_parameters_history,
+                states=self.states,
+                recent_points=None,  # Use full history for final save
+                final=True
+            )
+        except Exception as e:
+            logger.error(f"Failed to save final consolidated parameter tables: {e}")
 
     def _save_final_summary(self) -> None:
         """Save a final JSON summary file for the entire simulation run."""
