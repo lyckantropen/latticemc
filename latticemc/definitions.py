@@ -84,6 +84,7 @@ class Lattice:
 
     @property
     def size(self) -> int:
+        """Total number of particles in the lattice."""
         if self.particles is not None:
             return self.particles.size
         return 0
