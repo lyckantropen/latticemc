@@ -1,4 +1,12 @@
-"""CSV and XZ saving functionality for simulation data."""
+"""CSV and XZ saving functionality for simulation data.
+
+This module provides functions to save simulation data in CSV and compressed XZ formats
+for analysis. The saved tables are organized for easy comparison across parameter sets
+and include both summary statistics and raw time-series data.
+
+See SimulationRunner class documentation for complete details of the folder structure
+and table formats created during simulation runs.
+"""
 
 import logging
 from pathlib import Path
@@ -19,18 +27,61 @@ def save_parameter_summary_tables(working_folder: str,
                                   ) -> None:
     """Save parameter summary tables as CSV and XZ files.
 
+    Creates comprehensive data tables for cross-parameter analysis of simulation results.
+    Saves both CSV (human-readable) and XZ (compressed pandas DataFrame) formats with
+    identical data content.
+
     Parameters
     ----------
     working_folder : str
-        Path to working directory
+        Path to working directory where tables will be saved
     order_parameters_history : Dict[DefiningParameters, OrderParametersHistory]
-        Dictionary of parameter histories
+        Dictionary mapping parameter sets to their order parameter histories
     states : List[LatticeState]
-        List of lattice states to extract dimensions from
-    recent_points : Optional[int]
-        Window size for decorrelated averages (None = full history)
-    final : bool
-        If True, save as final files and include per-parameter raw data
+        List of lattice states to extract lattice dimensions from
+    recent_points : Optional[int], default None
+        Window size for decorrelated averages. If None, uses full history.
+        Typical values: 1000-5000 for periodic saves during simulation.
+    final : bool, default False
+        If True, saves as final files with '_final' suffix and creates
+        per-parameter raw time-series data in individual parameter folders.
+
+    Files Created
+    -------------
+    **Summary Tables** (data/ folder):
+    - parameter_summary[_final].csv: Cross-parameter comparison table
+    - parameter_summary[_final].xz: Same data as compressed DataFrame
+
+    Each row represents one parameter set with columns:
+    - Parameter values (temperature, tau, lambda, etc.)
+    - Lattice dimensions (lattice_X, lattice_Y, lattice_Z)
+    - avg_*: Decorrelated averages of order parameters
+    - fluct_*: Decorrelated averages of fluctuations
+    - hist_fluct_*: Fluctuations calculated from order parameter history
+
+    **Per-Parameter Time Series** (parameters/*/data/, final=True only):
+    - timeseries.csv/.xz: Raw time-series for individual parameter sets
+    - Columns: step, op_* (order parameters), fl_* (fluctuations)
+
+    Examples
+    --------
+    # Periodic save during simulation (windowed data)
+    save_parameter_summary_tables(
+        working_folder='simulation_output',
+        order_parameters_history=history_dict,
+        states=simulation_states,
+        recent_points=1000,
+        final=False
+    )
+
+    # Final save (full history + per-parameter files)
+    save_parameter_summary_tables(
+        working_folder='simulation_output',
+        order_parameters_history=history_dict,
+        states=simulation_states,
+        recent_points=None,
+        final=True
+    )
     """
     try:
         rows = []

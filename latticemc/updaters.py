@@ -116,47 +116,49 @@ class RandomWiggleRateAdjustor(Updater):
 
 
 class AcceptanceRateWiggleRateAdjustor(Updater):
-    """Adjust wiggle rate based on acceptance rate bounds."""
+    """Adjust wiggle rate based on acceptance rate bounds using a sliding discounting window."""
 
-    def __init__(self, lower_bound: float = 0.2, upper_bound: float = 0.5, *args, **kwargs):
+    def __init__(self, lower_bound: float = 0.2, upper_bound: float = 0.5,
+                 discount_factor: float = 0.95, adjustment_factor: float = 0.05, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.lower_bound = lower_bound
         self.upper_bound = upper_bound
+        self.discount_factor = discount_factor  # Exponential decay factor for historical data
+        self.adjustment_factor = adjustment_factor  # How aggressively to adjust wiggle rate
+        self.smoothed_acceptance_rate: Optional[float] = None
 
     def update(self, state: LatticeState) -> float:
-        """Adjust wiggle rate based on current acceptance rate."""
+        """Adjust wiggle rate based on smoothed acceptance rate using exponential moving average."""
         particles_size = state.lattice.particles.size if state.lattice.particles is not None else 1
-        acceptance_rate = state.accepted_x / particles_size
-        if acceptance_rate > self.upper_bound:
-            state.wiggle_rate *= 1.1
-        elif acceptance_rate < self.lower_bound:
-            state.wiggle_rate *= 0.9
-        return state.wiggle_rate
+        current_acceptance_rate = state.accepted_x / particles_size
 
-
-class DerivativeWiggleRateAdjustor(Updater):
-    """Adjust wiggle rate based on energy derivative trends."""
-
-    def __init__(self, order_parameters_history: OrderParametersHistory, how_many: int, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.how_many = how_many
-        self.order_parameters_history = order_parameters_history
-
-    def update(self, state):
-        """Adjust wiggle rate based on energy derivative analysis."""
-        m_e = np.array([m.mean() for m in np.split(self.order_parameters_history.order_parameters['energy'][-self.how_many:], 4)])
-        m_r = np.array([m.mean() for m in np.split(self.order_parameters_history.stats['wiggle_rate'][-self.how_many:], 4)])
-        m_r[np.where(m_r == 0)] = np.random.normal(scale=0.001)
-
-        de = np.diff(m_e, 1)
-        dr = np.diff(m_r, 1)
-        efirst = de / dr
-        etrend = (efirst[-1] - efirst[-2])
-        if etrend < 0:
-            state.wiggle_rate *= 1.1
+        # Initialize or update the exponentially weighted moving average
+        if self.smoothed_acceptance_rate is None:
+            self.smoothed_acceptance_rate = current_acceptance_rate
         else:
-            state.wiggle_rate *= 0.9
+            self.smoothed_acceptance_rate = (self.discount_factor * self.smoothed_acceptance_rate +
+                                             (1.0 - self.discount_factor) * current_acceptance_rate)
+
+        # Adjust wiggle rate based on smoothed acceptance rate with more gradual changes
+        if self.smoothed_acceptance_rate > self.upper_bound:
+            # Acceptance rate too high - increase wiggle rate (make moves larger)
+            adjustment = 1.0 + self.adjustment_factor * (self.smoothed_acceptance_rate - self.upper_bound) / (1.0 - self.upper_bound)
+            state.wiggle_rate *= adjustment
+        elif self.smoothed_acceptance_rate < self.lower_bound:
+            # Acceptance rate too low - decrease wiggle rate (make moves smaller)
+            adjustment = 1.0 - self.adjustment_factor * (self.lower_bound - self.smoothed_acceptance_rate) / self.lower_bound
+            state.wiggle_rate *= max(adjustment, 0.1)  # Prevent wiggle rate from going too low
+
+        # Keep wiggle rate within reasonable bounds
+        state.wiggle_rate = max(min(state.wiggle_rate, 10.0), 1e-6)
+
         return state.wiggle_rate
+
+    def format_value(self, value):
+        """Format the update value for display including smoothed acceptance rate."""
+        if self.smoothed_acceptance_rate is not None:
+            return f'wiggle_rate={value:.6f}, smoothed_acc_rate={self.smoothed_acceptance_rate:.3f}'
+        return f'wiggle_rate={value:.6f}'
 
 
 class CallbackUpdater(Updater):

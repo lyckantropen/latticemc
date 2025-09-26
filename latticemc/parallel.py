@@ -8,10 +8,11 @@ import queue
 import threading
 import time
 from collections import defaultdict
+from dataclasses import dataclass
 from decimal import Decimal
 from enum import Enum
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple, cast
+from typing import Any, Callable, Dict, List, Optional, Tuple, cast
 
 import numpy as np
 
@@ -20,6 +21,42 @@ from .simulation_process import MessageType, ParallelTemperingParameters, Simula
 from .tensorboard_logger import TensorBoardLogger
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass
+class PeriodicTask:
+    """
+    Wrapper for periodic tasks with timing information.
+
+    Attributes
+    ----------
+    callback : Callable[..., None]
+        The function to execute periodically (can accept arguments)
+    interval : float
+        Time interval in seconds between executions
+    last_execution_time : float
+        Timestamp of last execution (initialized to 0)
+    name : str
+        Human-readable name for the task (for debugging/logging)
+    """
+
+    callback: Callable[..., None]
+    interval: float
+    name: str
+    last_execution_time: float = 0.0
+
+    def should_execute(self, current_time: float) -> bool:
+        """Check if task should be executed based on current time and interval."""
+        return current_time - self.last_execution_time >= self.interval
+
+    def execute(self, current_time: float, *args, **kwargs) -> None:
+        """Execute the task and update last execution time."""
+        try:
+            self.callback(*args, **kwargs)
+            self.last_execution_time = current_time
+        except Exception as e:
+            logger.error(f"Error executing periodic task '{self.name}': {e}")
+            raise
 
 
 class ProgressBarMode(Enum):
@@ -83,6 +120,11 @@ class SimulationRunner(threading.Thread):
     ├── plots/                          # Temperature-dependent plots
     │   ├── energy_vs_temperature.png
     │   └── order_parameter_*_vs_temperature.png
+    ├── data/                           # Cross-parameter analysis tables
+    │   ├── parameter_summary.csv       # Periodic summary (decorrelated averages)
+    │   ├── parameter_summary.xz        # Same data, pickled DataFrame
+    │   ├── parameter_summary_final.csv # Final summary (full history)
+    │   └── parameter_summary_final.xz  # Same data, pickled DataFrame
     ├── logs/                           # Simulation runner logs
     ├── process_000/, process_001/, ... # Individual process data and states
     │   ├── data/
@@ -99,7 +141,9 @@ class SimulationRunner(threading.Thread):
         └── T1.65_lam0.35_tau1.00/
             ├── data/
             │   ├── order_parameters.npz
-            │   └── fluctuations.npz
+            │   ├── fluctuations.npz
+            │   ├── timeseries.csv       # Raw time-series data (final only)
+            │   └── timeseries.xz        # Same data, pickled DataFrame
             ├── states/
             │   └── latest_state.npz
             └── summary.json
@@ -112,6 +156,30 @@ class SimulationRunner(threading.Thread):
     - Temperature plots are generated periodically and saved permanently
     - All data is organized both by process ID and by actual parameter values
     - Recovery markers prevent data corruption during simulation restarts
+
+    Data Tables
+    -----------
+    The simulation creates comprehensive CSV and XZ tables for analysis:
+
+    **Parameter Summary Tables** (data/ folder):
+    - `parameter_summary.csv/.xz`: Periodic saves with decorrelated averages over recent points
+    - `parameter_summary_final.csv/.xz`: Final save with decorrelated averages over full history
+    - Each row represents one parameter set (temperature, tau, lambda, etc.)
+    - Columns include: parameter values, lattice dimensions, avg_*, fluct_*, hist_fluct_*
+    - avg_* columns: decorrelated averages of order parameters (energy, q0, q2, w, p, d322)
+    - fluct_* columns: decorrelated averages of fluctuations measured during simulation
+    - hist_fluct_* columns: fluctuations calculated directly from order parameter history
+
+    **Per-Parameter Time Series** (parameters/*/data/ folders):
+    - `timeseries.csv/.xz`: Complete raw time-series data for each parameter set
+    - Columns include: step, op_* (order parameters), fl_* (fluctuations)
+    - Created only during final save for detailed analysis of individual runs
+    - Combines order parameters and fluctuations in single file with step alignment
+
+    **File Formats**:
+    - CSV files: Human-readable, compatible with Excel and analysis tools
+    - XZ files: Compressed pandas DataFrames for efficient Python analysis
+    - Both formats contain identical data; XZ recommended for large datasets
     """
 
     def __init__(self,
@@ -144,6 +212,7 @@ class SimulationRunner(threading.Thread):
 
         # set to False when all processes have started running
         self._starting = True
+        self._stopping = False
 
         # Track process errors and failures
         self._process_errors: List[Exception] = []
@@ -193,15 +262,151 @@ class SimulationRunner(threading.Thread):
             logger.error(f"Failed to initialize TensorBoard logging: {e}")
             self._tb_logger = None
 
-        # Start time for logging
-        self._start_time: Optional[float] = None
-
         # Data saving tracking - count received messages for each parameter set
         self._order_parameters_received_count: Dict[DefiningParameters, int] = defaultdict(int)
         self._fluctuations_received_count: Dict[DefiningParameters, int] = defaultdict(int)
         self._states_received_count: Dict[DefiningParameters, int] = defaultdict(int)
 
-    def _create_progress_bars(self) -> None:
+        # message handlers mapping
+        self.message_handlers = {
+            MessageType.OrderParameters: self._handle_order_parameters_message,
+            MessageType.Fluctuations: self._handle_fluctuations_message,
+            MessageType.State: self._handle_state_message,
+            MessageType.ParallelTemperingSignUp: self._handle_parallel_tempering_signup_message,
+            MessageType.Error: self._handle_error_message,
+            MessageType.Finished: self._handle_finished_message,
+            MessageType.Ping: self._handle_ping_message,
+        }
+
+        # categorized task handlers for run method organization
+        self.pre_loop_tasks = [
+            self._pre_loop_log_temperature_assignments,
+            self._pre_loop_create_progress_bars,
+            self._pre_loop_start_simulation_processes,
+        ]
+
+        self.periodic_tasks = [
+            PeriodicTask(
+                callback=self._periodic_check_crashed_processes,
+                interval=1.0,  # Check for crashed processes every 1 second
+                name="check_crashed_processes"
+            ),
+            PeriodicTask(
+                callback=self._periodic_parallel_tempering,
+                interval=0.0,  # Execute every loop iteration (no delay)
+                name="parallel_tempering"
+            ),
+            PeriodicTask(
+                callback=self._periodic_save_temperature_plots,
+                interval=self.plot_save_interval_sec,
+                name="save_temperature_plots"
+            ),
+        ]
+
+        self.post_loop_tasks = [
+            (self._post_loop_close_tensorboard, []),
+            (self._post_loop_join_processes, []),
+            (self._post_loop_save_final_temperature_plots, []),
+            (self._post_loop_save_final_data, []),
+            (self._post_loop_cleanup_progress_bars, []),
+            (self._post_loop_save_final_summary, ['start_time']),
+        ]
+
+    def _update_progress_bars(self) -> None:
+        """Update all progress bars (tqdm objects) based on current _progress_meters."""
+        if self._progress_bars is None:
+            return
+
+        # Update main progress bar
+        if "main" in self._progress_bars:
+            total_progress = sum(self._progress_meters.values())
+            self._progress_bars["main"].n = total_progress
+            self._progress_bars["main"].refresh()
+
+        # Update individual simulation progress bars
+        for sim_index, progress in self._progress_meters.items():
+            sim_key = f"sim_{sim_index}"
+            if sim_key in self._progress_bars:
+                self._progress_bars[sim_key].n = progress
+                self._progress_bars[sim_key].refresh()
+
+    # Message handler callbacks for different message types
+    def _handle_order_parameters_message(self, index: int, msg: Any, pt_ready: List[Tuple[int, ParallelTemperingParameters]]) -> None:
+        """Handle OrderParameters message."""
+        parameters, op = msg
+        self.order_parameters_history[parameters].append_order_parameters(op)
+        # Log order parameters immediately when received
+        self._log_order_parameters_to_tensorboard(parameters, op)
+
+        # Save order parameters periodically
+        self._order_parameters_received_count[parameters] += 1
+        if self._order_parameters_received_count[parameters]:
+            self._save_order_parameters(parameters)
+            self._save_parameter_summary(parameters)
+
+    def _handle_fluctuations_message(self, index: int, msg: Any, pt_ready: List[Tuple[int, ParallelTemperingParameters]]) -> None:
+        """Handle Fluctuations message."""
+        parameters, fl = msg
+        self.order_parameters_history[parameters].append_fluctuations(fl)
+        # Log fluctuations immediately when received
+        self._log_fluctuations_to_tensorboard(parameters, fl)
+
+        # Save fluctuations periodically
+        self._fluctuations_received_count[parameters] += 1
+        if self._fluctuations_received_count[parameters]:
+            self._save_fluctuations(parameters)
+            self._save_parameter_summary(parameters)
+
+    def _handle_state_message(self, index: int, msg: Any, pt_ready: List[Tuple[int, ParallelTemperingParameters]]) -> None:
+        """Handle State message."""
+        # update the state
+        msg = cast(LatticeState, msg)
+        state = [state for state in self.states if state.parameters == msg.parameters][0]
+        state.update_from(msg)
+        # Log energy and acceptance rates immediately when state is received
+        self._log_state_to_tensorboard(state)
+
+        # Save state periodically
+        parameters = msg.parameters
+        self._states_received_count[parameters] += 1
+        if self._states_received_count[parameters]:
+            self._save_state(parameters)
+            self._save_parameter_summary(parameters)
+
+    def _handle_parallel_tempering_signup_message(self, index: int, msg: Any, pt_ready: List[Tuple[int, ParallelTemperingParameters]]) -> None:
+        """Handle ParallelTemperingSignUp message."""
+        pt_parameters = msg
+        pt_ready.append((index, pt_parameters))
+
+    def _handle_error_message(self, index: int, msg: Any, pt_ready: List[Tuple[int, ParallelTemperingParameters]]) -> None:
+        """Handle Error message."""
+        parameters, exception = msg
+        logger.error(f'SimulationProcess[{index},{parameters}]: Failed with exception "{exception}"')
+        self._process_errors.append(exception)
+        self._crashed_processes.append(index)
+
+    def _handle_finished_message(self, index: int, msg: Any, pt_ready: List[Tuple[int, ParallelTemperingParameters]]) -> None:
+        """Handle Finished message."""
+        parameters = msg
+        logger.info(f'SimulationProcess[{index},{parameters}]: Finished succesfully')
+
+    def _handle_ping_message(self, index: int, msg: Any, pt_ready: List[Tuple[int, ParallelTemperingParameters]]) -> None:
+        """Handle Ping message."""
+        iterations = msg
+        self._last_ping_time[index] = time.time()
+        self._progress_meters[index] = iterations
+        logger.debug(f'SimulationProcess[{index}]: Ping received at iteration {iterations}')
+
+        # Update progress bars
+        self._update_progress_bars()
+
+    # Pre-loop task handlers
+    def _pre_loop_log_temperature_assignments(self) -> None:
+        """Log all temperature assignments to TensorBoard."""
+        if self._tb_logger:
+            self._tb_logger.log_simulation_temperature_assignments(self.states)
+
+    def _pre_loop_create_progress_bars(self) -> None:
         """Create progress bars (tqdm objects) based on the specified mode."""
         if self.progress_bar_mode == ProgressBarMode.NONE:
             return
@@ -244,52 +449,8 @@ class SimulationRunner(threading.Thread):
             logger.warning(f"tqdm not available ({e}), progress bars disabled")
             self.progress_bar_mode = ProgressBarMode.NONE
 
-    def _update_progress_bars(self) -> None:
-        """Update all progress bars (tqdm objects) based on current _progress_meters."""
-        if self._progress_bars is None:
-            return
-
-        # Update main progress bar
-        if "main" in self._progress_bars:
-            total_progress = sum(self._progress_meters.values())
-            self._progress_bars["main"].n = total_progress
-            self._progress_bars["main"].refresh()
-
-        # Update individual simulation progress bars
-        for sim_index, progress in self._progress_meters.items():
-            sim_key = f"sim_{sim_index}"
-            if sim_key in self._progress_bars:
-                self._progress_bars[sim_key].n = progress
-                self._progress_bars[sim_key].refresh()
-
-    def _cleanup_progress_bars(self) -> None:
-        """Clean up created progress bars."""
-        if self._progress_bars is None:
-            return
-
-        for pbar in self._progress_bars.values():
-            try:
-                pbar.close()
-            except Exception as e:
-                logger.debug(f"Error closing progress bar: {e}")
-
-        self._progress_bars = None
-
-    def run(self) -> None:
-        """Execute all simulation processes."""
-        q: mp.Queue = mp.Queue()
-
-        # Log all temperature assignments to TensorBoard
-        if self._tb_logger:
-            self._tb_logger.log_simulation_temperature_assignments(self.states)
-
-        self._start_time = time.time()
-        last_logged_time = self._start_time
-
-        # Create progress bars if needed
-        self._create_progress_bars()
-
-        # create and start all simulations
+    def _pre_loop_start_simulation_processes(self, message_queue: mp.Queue) -> None:
+        """Create and start all simulation processes."""
         self.simulations = []
         for i, state in enumerate(self.states):
             # Prepare kwargs with barrier and working folder
@@ -304,7 +465,7 @@ class SimulationRunner(threading.Thread):
                 sim_kwargs['save_interval'] = self.save_interval
                 sim_kwargs['auto_recover'] = self.auto_recover
 
-            sim = SimulationProcess(i, q, state, *self.args, **sim_kwargs)
+            sim = SimulationProcess(i, message_queue, state, *self.args, **sim_kwargs)
             sim.start()
             self.simulations.append(sim)
 
@@ -313,122 +474,166 @@ class SimulationRunner(threading.Thread):
 
         self._starting = False
 
-        # main message processing loop
-        pt_ready: List[Tuple[int, ParallelTemperingParameters]] = []
-        last_crash_check_time = time.time()
-        crash_check_interval = 1.0  # Check for crashed processes every 1 second instead of every loop
+    # Periodic task handlers
+    def _periodic_check_crashed_processes(self, start_time: float, pt_ready: List[Tuple[int, ParallelTemperingParameters]]) -> None:
+        """Check for crashed processes."""
+        try:
+            self._check_for_crashed_processes(start_time)
+        except RuntimeError as e:
+            logger.error(f'SimulationRunner: Stopping due to error: {e}')
+            self._thread_exception = e
+            self.stop()
+            raise  # Re-raise to break out of main loop
 
-        while self.alive():
+    def _periodic_parallel_tempering(self, start_time: float, pt_ready: List[Tuple[int, ParallelTemperingParameters]]) -> None:
+        """Perform parallel tempering if enabled and replicas are ready."""
+        if self._parallel_tempering_enabled:
+            self._do_parallel_tempering(pt_ready)
+
+    def _periodic_save_temperature_plots(self, start_time: float, pt_ready: List[Tuple[int, ParallelTemperingParameters]]) -> None:
+        """Save temperature plots."""
+        if self._tb_logger:
+            self._save_temperature_plots(recent_points=self.plot_recent_points, start_time=start_time)
+
+    # Post-loop task handlers
+    def _post_loop_close_tensorboard(self) -> None:
+        """Close TensorBoard logger."""
+        if self._tb_logger:
+            self._tb_logger.close()
+
+    def _post_loop_join_processes(self) -> None:
+        """Ensure all processes have finished."""
+        [sim.join() for sim in self.simulations]  # type: ignore
+
+    def _post_loop_save_final_temperature_plots(self) -> None:
+        """Save final temperature plots."""
+        self._save_temperature_plots(recent_points=None, fluctuations_from_history=True)
+
+    def _post_loop_save_final_data(self) -> None:
+        """Save final data for all parameter sets when simulation completes."""
+        if self.working_folder is None:
+            return
+
+        logger.info("Saving final data for all parameter sets...")
+
+        # Save data for all parameter sets that have data
+        for parameters in self.order_parameters_history.keys():
+            try:
+                self._save_order_parameters(parameters)
+                self._save_fluctuations(parameters, fluctuations_from_history=True)
+                self._save_state(parameters)
+                self._save_parameter_summary(parameters)
+                logger.info(f"Saved final data for parameters {parameters.get_folder_name()}")
+            except Exception as e:
+                logger.error(f"Error saving final data for {parameters}: {e}")
+
+        logger.info("Final data saving completed.")
+
+        # Save consolidated final parameter tables (decorrelated averages and fluctuations over full history)
+        try:
+            from .csv_saver import save_parameter_summary_tables
+            save_parameter_summary_tables(
+                working_folder=self.working_folder,
+                order_parameters_history=self.order_parameters_history,
+                states=self.states,
+                recent_points=None,  # Use full history for final save
+                final=True
+            )
+        except Exception as e:
+            logger.error(f"Failed to save final consolidated parameter tables: {e}")
+
+    def _post_loop_cleanup_progress_bars(self) -> None:
+        """Clean up created progress bars."""
+        if self._progress_bars is None:
+            return
+
+        for pbar in self._progress_bars.values():
+            try:
+                pbar.close()
+            except Exception as e:
+                logger.debug(f"Error closing progress bar: {e}")
+
+        self._progress_bars = None
+
+    def _post_loop_save_final_summary(self, start_time: float) -> None:
+        """Save a final JSON summary file for the entire simulation run."""
+        if self.working_folder is None:
+            return
+
+        try:
+            summary_path = Path(self.working_folder) / "simulation_summary.json"
+
+            summary_data = {
+                'total_processes': len(self.simulations),
+                'total_cycles': self.cycles,
+                'parameters_list': [state.parameters.to_dict() for state in self.states],
+                'process_status': self.get_process_status(),
+                'finished_gracefully': self.finished_gracefully(),
+                'running_time_seconds': time.time() - start_time
+            }
+
+            with open(summary_path, 'w', encoding='utf-8') as f:
+                json.dump(summary_data, f, indent=2, ensure_ascii=False)
+
+            logger.info(f"Saved final simulation summary to {summary_path}")
+
+        except Exception as e:
+            logger.error(f"Error saving final simulation summary: {e}")
+
+    def run(self) -> None:
+        """Execute all simulation processes."""
+        message_queue: mp.Queue = mp.Queue()
+        start_time = time.time()
+
+        # Execute all pre-loop tasks that need arguments
+        self._pre_loop_log_temperature_assignments()
+        self._pre_loop_create_progress_bars()
+        self._pre_loop_start_simulation_processes(message_queue)
+
+        # Main message processing loop
+        pt_ready: List[Tuple[int, ParallelTemperingParameters]] = []
+
+        while self.alive() and not self._stopping:
             # Process messages with timeout to avoid busy-waiting
             try:
                 # Use blocking get with timeout instead of busy-waiting on empty()
-                message_type, index, msg = q.get(timeout=0.01)  # Block for up to 10ms
+                message_type, index, msg = message_queue.get(timeout=0.01)  # Block for up to 10ms
 
                 logger.debug(f'SimulationRunner: Received {message_type}, index={index}')
 
-                if message_type == MessageType.OrderParameters:
-                    parameters, op = msg
-                    self.order_parameters_history[parameters].append_order_parameters(op)
-                    # Log order parameters immediately when received
-                    self._log_order_parameters_to_tensorboard(parameters, op)
-
-                    # Save order parameters periodically
-                    self._order_parameters_received_count[parameters] += 1
-                    if self._order_parameters_received_count[parameters]:
-                        self._save_order_parameters(parameters)
-                        self._save_parameter_summary(parameters)
-                if message_type == MessageType.Fluctuations:
-                    parameters, fl = msg
-                    self.order_parameters_history[parameters].append_fluctuations(fl)
-                    # Log fluctuations immediately when received
-                    self._log_fluctuations_to_tensorboard(parameters, fl)
-
-                    # Save fluctuations periodically
-                    self._fluctuations_received_count[parameters] += 1
-                    if self._fluctuations_received_count[parameters]:
-                        self._save_fluctuations(parameters)
-                        self._save_parameter_summary(parameters)
-                if message_type == MessageType.State:
-                    # update the state
-                    msg = cast(LatticeState, msg)
-                    state = [state for state in self.states if state.parameters == msg.parameters][0]
-                    state.update_from(msg)
-                    # Log energy and acceptance rates immediately when state is received
-                    self._log_state_to_tensorboard(state)
-
-                    # Save state periodically
-                    parameters = msg.parameters
-                    self._states_received_count[parameters] += 1
-                    if self._states_received_count[parameters]:
-                        self._save_state(parameters)
-                        self._save_parameter_summary(parameters)
-                if message_type == MessageType.ParallelTemperingSignUp:
-                    pt_parameters = msg
-                    pt_ready.append((index, pt_parameters))
-                if message_type == MessageType.Error:
-                    parameters, exception = msg
-                    logger.error(f'SimulationProcess[{index},{parameters}]: Failed with exception "{exception}"')
-                    self._process_errors.append(exception)
-                    self._crashed_processes.append(index)
-                if message_type == MessageType.Finished:
-                    parameters = msg
-                    logger.info(f'SimulationProcess[{index},{parameters}]: Finished succesfully')
-                if message_type == MessageType.Ping:
-                    iterations = msg
-                    self._last_ping_time[index] = time.time()
-                    self._progress_meters[index] = iterations
-                    logger.debug(f'SimulationProcess[{index}]: Ping received at iteration {iterations}')
-
-                    # Update progress bars
-                    self._update_progress_bars()
+                # Handle message using appropriate handler
+                if message_type in self.message_handlers:
+                    self.message_handlers[message_type](index, msg, pt_ready)
+                else:
+                    logger.warning(f'SimulationRunner: Unknown message type {message_type} from process {index}')
 
             except queue.Empty:
                 # No messages available - this is normal, continue to next iteration
                 pass
 
-            # Check for crashed processes periodically, not every loop iteration
+            # Execute periodic tasks that are due
             current_time = time.time()
-            if current_time - last_crash_check_time >= crash_check_interval:
-                try:
-                    self._check_for_crashed_processes()
-                    last_crash_check_time = current_time
-                except RuntimeError as e:
-                    logger.error(f'SimulationRunner: Stopping due to error: {e}')
-                    self._thread_exception = e
-                    self.stop()
-                    break  # Exit the main loop instead of raising
+            try:
+                for periodic_task in self.periodic_tasks:
+                    if periodic_task.should_execute(current_time):
+                        periodic_task.execute(current_time, start_time, pt_ready)
+            except RuntimeError:
+                # Exception handling for crashed processes - break out of loop
+                break
 
-            # Perform parallel tempering if enabled and there are replicas ready
-            if self._parallel_tempering_enabled:
-                self._do_parallel_tempering(pt_ready)
+        # Execute all post-loop tasks
+        for task_fn, arg_names in self.post_loop_tasks:
+            if arg_names:
+                # Pass arguments based on names
+                args = []
+                for arg_name in arg_names:
+                    if arg_name == 'start_time':
+                        args.append(start_time)
+                task_fn(*args)  # type: ignore
+            else:
+                task_fn()  # type: ignore
 
-            # Log simulation progress every self.plot_save_interval_sec seconds
-            if self._tb_logger:
-                current_time = time.time()
-                if current_time - last_logged_time >= self.plot_save_interval_sec:
-                    self._save_temperature_plots(recent_points=self.plot_recent_points)
-                    last_logged_time = current_time
-
-        # Close TensorBoard logger
-        if self._tb_logger:
-            self._tb_logger.close()
-
-        # Ensure all processes have finished
-        [sim.join() for sim in self.simulations]  # type: ignore
-
-        # Save final temperature plots
-        self._save_temperature_plots(recent_points=None, fluctuations_from_history=True)
-
-        # Save final data for all parameter sets
-        self._save_final_data()
-
-        # Clean up progress bars
-        self._cleanup_progress_bars()
-
-        # Save final JSON summary file
-        self._save_final_summary()
-
-    def _check_for_crashed_processes(self) -> None:
+    def _check_for_crashed_processes(self, start_time: float) -> None:
         """Check for crashed processes using ping messages and process status."""
         current_time = time.time()
 
@@ -466,7 +671,7 @@ class SimulationRunner(threading.Thread):
                 if time_since_ping > self._ping_timeout:
                     unresponsive_processes.append(i)
             # If we haven't received any ping yet, only worry if process has been running for a while
-            elif not self._starting and current_time - (self._start_time or current_time) > self._ping_timeout:
+            elif not self._starting and current_time - start_time > self._ping_timeout:
                 unresponsive_processes.append(i)
 
         if dead_processes or unresponsive_processes:
@@ -580,11 +785,10 @@ class SimulationRunner(threading.Thread):
 
     def stop(self) -> None:
         """Terminate all simulation processes."""
+        self._stopping = True
+
         [sim.terminate() for sim in self.simulations]  # type: ignore
         [sim.join() for sim in self.simulations if sim.is_alive()]  # type: ignore
-
-        # Clean up progress bars
-        self._cleanup_progress_bars()
 
     def alive(self) -> bool:
         """Check if any simulation processes are still running with caching to reduce overhead."""
@@ -749,7 +953,7 @@ class SimulationRunner(threading.Thread):
         except Exception as e:
             logger.error(f"Error logging temperatures after exchange to TensorBoard: {e}")
 
-    def _save_temperature_plots(self, recent_points: Optional[int] = 1000, fluctuations_from_history: bool = False) -> None:
+    def _save_temperature_plots(self, recent_points: Optional[int] = 1000, fluctuations_from_history: bool = False, start_time: Optional[float] = None) -> None:
         """
         Save temperature-based plots for energy, order parameters, and fluctuations.
 
@@ -769,7 +973,7 @@ class SimulationRunner(threading.Thread):
 
             from .plot_utils import create_all_temperature_plots
 
-            current_step = int(time.time() - (self._start_time or time.time()))
+            current_step = int(time.time() - (start_time or time.time()))
 
             # Create all temperature plots using plot_utils (uses entire history)
             all_plots = create_all_temperature_plots(
@@ -975,61 +1179,3 @@ class SimulationRunner(threading.Thread):
 
         except Exception as e:
             logger.error(f"Error saving summary for {parameters}: {e}")
-
-    def _save_final_data(self) -> None:
-        """Save final data for all parameter sets when simulation completes."""
-        if self.working_folder is None:
-            return
-
-        logger.info("Saving final data for all parameter sets...")
-
-        # Save data for all parameter sets that have data
-        for parameters in self.order_parameters_history.keys():
-            try:
-                self._save_order_parameters(parameters)
-                self._save_fluctuations(parameters, fluctuations_from_history=True)
-                self._save_state(parameters)
-                self._save_parameter_summary(parameters)
-                logger.info(f"Saved final data for parameters {parameters.get_folder_name()}")
-            except Exception as e:
-                logger.error(f"Error saving final data for {parameters}: {e}")
-
-        logger.info("Final data saving completed.")
-
-        # Save consolidated final parameter tables (decorrelated averages and fluctuations over full history)
-        try:
-            from .csv_saver import save_parameter_summary_tables
-            save_parameter_summary_tables(
-                working_folder=self.working_folder,
-                order_parameters_history=self.order_parameters_history,
-                states=self.states,
-                recent_points=None,  # Use full history for final save
-                final=True
-            )
-        except Exception as e:
-            logger.error(f"Failed to save final consolidated parameter tables: {e}")
-
-    def _save_final_summary(self) -> None:
-        """Save a final JSON summary file for the entire simulation run."""
-        if self.working_folder is None:
-            return
-
-        try:
-            summary_path = Path(self.working_folder) / "simulation_summary.json"
-
-            summary_data = {
-                'total_processes': len(self.simulations),
-                'total_cycles': self.cycles,
-                'parameters_list': [state.parameters.to_dict() for state in self.states],
-                'process_status': self.get_process_status(),
-                'finished_gracefully': self.finished_gracefully(),
-                'running_time_seconds': time.time() - (self._start_time or time.time())
-            }
-
-            with open(summary_path, 'w', encoding='utf-8') as f:
-                json.dump(summary_data, f, indent=2, ensure_ascii=False)
-
-            logger.info(f"Saved final simulation summary to {summary_path}")
-
-        except Exception as e:
-            logger.error(f"Error saving final simulation summary: {e}")
