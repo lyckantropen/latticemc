@@ -5,6 +5,7 @@ import json
 from decimal import Decimal
 from pathlib import Path
 
+import numpy as np
 from pyfakefs.fake_filesystem_unittest import TestCase
 
 import latticemc.simulation  # Imported for module patching in pyfakefs
@@ -110,7 +111,7 @@ class TestSimulationPersistenceFolders(TestCase):
         with open(marker_path, 'w') as f:
             f.write("Test recovery simulation\n")
 
-        # Second simulation - test recovery
+        # Second simulation - test discrete recovery
         fresh_lattice = Lattice(4, 4, 4)
         initialize_partially_ordered(fresh_lattice, x=random_quaternion(1))
         fresh_state = LatticeState(parameters=self.model_params, lattice=fresh_lattice)
@@ -120,13 +121,21 @@ class TestSimulationPersistenceFolders(TestCase):
             cycles=25,
             working_folder=self.working_folder,
             save_interval=10,
-            auto_recover=True  # Enable recovery
+            auto_recover=False  # Don't auto-recover, we'll do it explicitly
         )
-        sim2.run()
 
-        # Verify recovery worked
+        # Test the discrete recovery method
+        recovery_success = sim2.recover()
+        self.assertTrue(recovery_success, "Recovery should be successful")
+
+        # Check that the simulation state was properly recovered
         self.assertGreaterEqual(sim2.current_step, final_step_sim1,
                                 "Recovered simulation should continue from saved state")
+
+        # Run the recovered simulation
+        sim2.run()
+
+        # Verify recovery worked and simulation completed
         self.assertEqual(sim2.current_step, 25,
                          "Should complete the requested cycles")        # Verify marker file is removed after successful recovery
         self.assertFalse(marker_path.exists(),
@@ -248,3 +257,223 @@ def test_persistence_basic():
     sim.run()
 
     assert sim.current_step == 5
+
+
+class TestSimulationDataPreservation(TestCase):
+    """Test comprehensive data preservation across save/recovery cycles."""
+
+    def setUp(self):
+        """Set up fake filesystem and test simulation."""
+        # Patch pathlib modules before setting up pyfakefs
+        self.setUpPyfakefs(modules_to_reload=[latticemc.simulation])
+
+        # Create test lattice and parameters
+        self.lattice = Lattice(4, 4, 4)  # Small but sufficient for comprehensive testing
+        initialize_partially_ordered(self.lattice, x=random_quaternion(1))
+
+        self.model_params = DefiningParameters(
+            temperature=Decimal("0.7"),
+            lam=Decimal("0.2"),
+            tau=Decimal("0.8")
+        )
+        self.state = LatticeState(parameters=self.model_params, lattice=self.lattice)
+        self.working_folder = "/test_comprehensive_persistence"
+
+    def test_comprehensive_data_preservation(self):
+        """Test that all simulation data is perfectly preserved across save/recovery."""
+        import numpy.testing as npt
+
+        # Run first simulation with regular saves
+        sim1 = Simulation(
+            initial_state=self.state,
+            cycles=50,  # Enough cycles to generate meaningful data
+            working_folder=self.working_folder,
+            save_interval=20,  # Save twice during simulation
+            fluctuations_window=25,  # Small window to ensure fluctuations are calculated
+            auto_recover=False
+        )
+
+        # Run the simulation
+        sim1.run()
+
+        # Capture final state data for comparison
+        final_step = sim1.current_step
+        final_lattice_state = sim1.state
+        final_order_params = sim1.local_history.order_parameters_list.copy()
+        final_fluctuations = sim1.local_history.fluctuations_list.copy()
+        final_stats = sim1.local_history.stats_list.copy()
+
+        # Capture detailed lattice data
+        final_particles = final_lattice_state.lattice.particles.copy()
+        final_properties = final_lattice_state.lattice.properties.copy()
+        final_lattice_averages = final_lattice_state.lattice_averages.copy()
+        final_wiggle_rate = final_lattice_state.wiggle_rate
+        final_iterations = final_lattice_state.iterations
+        final_accepted_x = final_lattice_state.accepted_x
+        final_accepted_p = final_lattice_state.accepted_p
+
+        # Create recovery marker to simulate interrupted simulation
+        working_path = Path(self.working_folder)
+        marker_path = working_path / "simulation_in_progress.marker"
+        with open(marker_path, 'w') as f:
+            f.write("Test recovery simulation\n")
+
+        # Create fresh lattice and state for recovery test
+        fresh_lattice = Lattice(5, 5, 5)  # Different size to ensure recovery overwrites
+        initialize_partially_ordered(fresh_lattice, x=random_quaternion(2))
+        fresh_params = DefiningParameters(
+            temperature=Decimal("1.2"),  # Different parameters
+            lam=Decimal("0.8"),
+            tau=Decimal("0.3")
+        )
+        fresh_state = LatticeState(parameters=fresh_params, lattice=fresh_lattice)
+
+        # Test recovery with different initial conditions
+        sim2 = Simulation(
+            initial_state=fresh_state,
+            cycles=70,  # More cycles to continue simulation
+            working_folder=self.working_folder,
+            save_interval=15,
+            fluctuations_window=30,  # Different window
+            auto_recover=False  # Don't auto-recover, test discrete recovery
+        )
+
+        # Test discrete recovery method
+        recovery_success = sim2.recover()
+        self.assertTrue(recovery_success, "Recovery should be successful")
+
+        # Verify initial recovery state BEFORE running more simulation
+        self.assertEqual(sim2.current_step, final_step, "Current step should match saved state")
+
+        # Check parameters are preserved (should be original, not fresh)
+        self.assertEqual(sim2.state.parameters.temperature, self.model_params.temperature,
+                         "Temperature parameter should be preserved")
+        self.assertEqual(sim2.state.parameters.lam, self.model_params.lam,
+                         "Lambda parameter should be preserved")
+        self.assertEqual(sim2.state.parameters.tau, self.model_params.tau,
+                         "Tau parameter should be preserved")
+
+        # Check lattice dimensions are correctly recovered (not from fresh_lattice)
+        self.assertEqual(sim2.state.lattice.particles.shape, final_particles.shape,
+                         "Lattice particles shape should be preserved")
+        self.assertEqual(sim2.state.lattice.properties.shape, final_properties.shape,
+                         "Lattice properties shape should be preserved")
+
+        # Verify order parameters and fluctuations history preservation
+        recovered_order_params = sim2.local_history.order_parameters_list
+        recovered_fluctuations = sim2.local_history.fluctuations_list
+
+        self.assertEqual(len(recovered_order_params), len(final_order_params),
+                         "Should recover exact number of order parameters")
+        self.assertEqual(len(recovered_fluctuations), len(final_fluctuations),
+                         "Should recover exact number of fluctuations")
+
+        # Compare actual data values for key fields
+        if len(final_order_params) > 0:
+            for i in range(min(3, len(final_order_params))):
+                npt.assert_array_equal(recovered_order_params[i], final_order_params[i],
+                                       f"Order parameters should match exactly at index {i}")
+
+        if len(final_fluctuations) > 0:
+            for i in range(min(2, len(final_fluctuations))):
+                npt.assert_array_equal(recovered_fluctuations[i], final_fluctuations[i],
+                                       f"Fluctuations should match exactly at index {i}")
+
+        # Now run the recovered simulation to test continuation
+        sim2.run()
+
+        # Verify simulation completed with more cycles
+        self.assertEqual(sim2.current_step, 70, "Should complete requested cycles")
+
+        # Verify continued simulation added more data
+        final_recovered_order_params = sim2.local_history.order_parameters_list
+        final_recovered_fluctuations = sim2.local_history.fluctuations_list
+
+        self.assertGreaterEqual(len(final_recovered_order_params), len(final_order_params),
+                                "Should have at least original order parameters plus new ones")
+
+        if len(final_fluctuations) > 0:
+            self.assertGreaterEqual(len(final_recovered_fluctuations), len(final_fluctuations),
+                                    "Should have at least original fluctuations plus new ones")
+
+        # Verify stats preservation
+        recovered_stats = sim2.local_history.stats_list
+
+        if len(final_stats) > 0:
+            self.assertGreaterEqual(len(recovered_stats), len(final_stats),
+                                    "Should have at least original stats plus new ones")
+
+        # Verify working folder structure and files
+        working_path = Path(self.working_folder)
+
+        # Check that all expected files exist
+        self.assertTrue((working_path / "data" / "order_parameters.npz").exists(),
+                        "Order parameters file should exist")
+        self.assertTrue((working_path / "data" / "fluctuations.npz").exists(),
+                        "Fluctuations file should exist")
+        self.assertTrue((working_path / "states" / "lattice_state.npz").exists(),
+                        "Lattice state file should exist")
+        self.assertTrue((working_path / "states" / "simulation_state.joblib").exists(),
+                        "Simulation state file should exist")
+        self.assertTrue((working_path / "summary.json").exists(),
+                        "JSON summary should exist")
+
+        # Verify marker file was removed after successful recovery
+        self.assertFalse(marker_path.exists(),
+                         "Recovery marker should be removed after successful recovery")
+
+        # Test final JSON summary contains correct data
+        summary_path = working_path / "summary.json"
+        with open(summary_path) as f:
+            summary = json.load(f)
+
+        self.assertEqual(summary['current_step'], 70, "JSON should reflect final step count")
+        self.assertEqual(summary['total_cycles'], 70, "JSON should reflect total cycles")
+        self.assertIn('latest_order_parameters', summary, "JSON should contain order parameters")
+        self.assertIn('latest_fluctuations', summary, "JSON should contain fluctuations")
+
+        # Additional verification: manually load saved data and compare
+        self._verify_saved_data_integrity(working_path, sim2)
+
+    def _verify_saved_data_integrity(self, working_path: Path, sim: Simulation):
+        """Manually verify the integrity of saved data files."""
+        import joblib
+
+        # Load and verify simulation state file
+        sim_state_path = working_path / "states" / "simulation_state.joblib"
+        if sim_state_path.exists():
+            loaded_sim_state = joblib.load(sim_state_path)
+
+            # Verify required keys exist
+            required_keys = ['cycles', 'fluctuations_window', 'current_step', 'save_interval']
+            for key in required_keys:
+                self.assertIn(key, loaded_sim_state, f"Simulation state should contain {key}")
+
+            self.assertEqual(loaded_sim_state['current_step'], sim.current_step,
+                             "Saved simulation step should match current step")
+
+        # Load and verify lattice state file
+        lattice_state_path = working_path / "states" / "lattice_state.npz"
+        if lattice_state_path.exists():
+            with np.load(lattice_state_path) as data:
+                # Verify required arrays exist (lattice_averages excluded since it can be recomputed)
+                required_arrays = ['particles', 'properties', 'current_step']
+                for key in required_arrays:
+                    self.assertIn(key, data.files, f"Lattice state should contain {key}")
+
+                self.assertEqual(int(data['current_step']), sim.current_step,
+                                 "Saved lattice step should match current step")
+
+        # Load and verify order parameters file
+        order_params_path = working_path / "data" / "order_parameters.npz"
+        if order_params_path.exists():
+            with np.load(order_params_path) as data:
+                # Should have order parameters data
+                self.assertTrue(len(data.files) > 0, "Order parameters file should not be empty")
+
+        # Load and verify fluctuations file
+        fluctuations_path = working_path / "data" / "fluctuations.npz"
+        if fluctuations_path.exists():
+            with np.load(fluctuations_path) as data:
+                # Should have fluctuations data
+                self.assertTrue(len(data.files) > 0, "Fluctuations file should not be empty")

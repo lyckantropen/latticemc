@@ -53,11 +53,13 @@ class SimulationProcess(Simulation, mp.Process):
                  report_state_every: int = 1000,
                  parallel_tempering_interval: Optional[int] = None,
                  exchange_barrier=None,
+                 parallel_tempering_timeout: int = 240,
+                 auto_recover: bool = False,
                  **kwargs) -> None:
         # Disable progress bar for multiprocessing
         kwargs['progress_bar'] = None
 
-        # Initialize Simulation and Process
+        # Initialize parent classes - order matters for multiple inheritance
         Simulation.__init__(self, initial_state, *args, **kwargs)
         mp.Process.__init__(self)
 
@@ -68,12 +70,20 @@ class SimulationProcess(Simulation, mp.Process):
         self.report_state_every = report_state_every
         self.parallel_tempering_interval = parallel_tempering_interval
         self.exchange_barrier = exchange_barrier
+        self.parallel_tempering_timeout = parallel_tempering_timeout
+        self.auto_recover = auto_recover
 
         self.running = mp.Value('i', 1)
         self.temperature = mp.Value(c_double, float(self.state.parameters.temperature))
 
+        if self.auto_recover:
+            self.recover()
+
     def _create_additional_updaters(self) -> List[Updater]:
         """Create additional updaters for queue communication and parallel tempering."""
+        # Get any updaters from parent class
+        super_updaters = super()._create_additional_updaters()
+
         # Queue communication updaters
         order_parameters_broadcaster = CallbackUpdater(
             callback=lambda _: self._broadcast_order_parameters(),
@@ -97,6 +107,7 @@ class SimulationProcess(Simulation, mp.Process):
         )
 
         updaters: List[Updater] = [
+            *super_updaters,
             order_parameters_broadcaster,
             fluctuations_broadcaster,
             state_broadcaster,
@@ -163,7 +174,8 @@ class SimulationProcess(Simulation, mp.Process):
     def _simulation_finished(self) -> None:
         """Handle simulation completion by marking as finished and notifying queue."""
         # Mark as finished - this will prevent future barrier waits
-        self.running.value = 0
+        with self.running.get_lock():
+            self.running.value = 0
 
         # Call parent method to perform final save and cleanup
         super()._simulation_finished()
@@ -173,19 +185,17 @@ class SimulationProcess(Simulation, mp.Process):
 
     def _broadcast_order_parameters(self) -> None:
         """Publish recent order parameters from history to the governing thread."""
-        count = min(self._relevant_history_length, self.report_order_parameters_every)
-        recent_params = np.array(self.local_history.order_parameters_list[-count:],
-                                 dtype=gathered_order_parameters) if count > 0 else self.local_history.order_parameters
+        params = self.local_history.order_parameters
         self.queue.put((MessageType.OrderParameters, self.index,
-                        (self.state.parameters, recent_params)))
+                        (self.state.parameters, params)))
+        self.local_history.order_parameters_list.clear()  # Clear after broadcasting
 
     def _broadcast_fluctuations(self) -> None:
         """Publish recent fluctuation values from history to the governing thread."""
-        count = min(self._relevant_history_length, self.report_fluctuations_every)
-        recent_fluctuations = np.array(self.local_history.fluctuations_list[-count:],
-                                       dtype=gathered_order_parameters) if count > 0 else self.local_history.fluctuations
+        fluctuations = self.local_history.fluctuations
         self.queue.put((MessageType.Fluctuations, self.index,
-                        (self.state.parameters, recent_fluctuations)))
+                        (self.state.parameters, fluctuations)))
+        self.local_history.fluctuations_list.clear()  # Clear after broadcasting
 
     def _broadcast_state(self):
         """Publish the current Lattice State to the governing thread."""
@@ -206,7 +216,7 @@ class SimulationProcess(Simulation, mp.Process):
         if self.exchange_barrier is not None:
             logger.debug(f'SimulationProcess[{self.index}, {self.state.parameters}]: Waiting at exchange barrier')
             try:
-                self.exchange_barrier.wait(timeout=30)  # Add timeout to prevent indefinite hanging
+                self.exchange_barrier.wait(timeout=self.parallel_tempering_timeout)  # Add timeout to prevent indefinite hanging
             except Exception as e:
                 # Handle barrier broken, timeout, or other barrier-related exceptions
                 logger.debug(f'SimulationProcess[{self.index}, {self.state.parameters}]: Barrier exception ({e}), skipping parallel tempering')
@@ -220,7 +230,7 @@ class SimulationProcess(Simulation, mp.Process):
             parameters=self.state.parameters, energy=energy, pipe=theirs)))
 
         # wait for decision in governing thread
-        if not our.poll(30):
+        if not our.poll(self.parallel_tempering_timeout):
             logger.warning(f'SimulationProcess[{self.index}, {self.state.parameters}]: No parallel tempering data to exchange')
             return
         parameters = our.recv()
@@ -228,6 +238,7 @@ class SimulationProcess(Simulation, mp.Process):
         logger.debug(f'SimulationProcess[{self.index}, {self.state.parameters}]: Received parameters for exchange: {parameters}')
 
         if parameters != self.state.parameters:
+            logger.debug(f'SimulationProcess[{self.index}, {self.state.parameters}]: Performing parallel tempering exchange to {parameters}')
             # broadcast what we can
             self._broadcast_order_parameters()
             self._broadcast_fluctuations()
@@ -238,5 +249,59 @@ class SimulationProcess(Simulation, mp.Process):
                 self.state.parameters = parameters
                 self.temperature.value = float(parameters.temperature)
 
-            # reset the number of results that can be safely broadcasted as coming from this configuration
-            self.reset_relevant_history()
+            # clear history to avoid mixing data from different temperatures
+            logger.debug(f'SimulationProcess[{self.index}, {self.state.parameters}]:'
+                         f' Clearing {len(self.local_history.order_parameters_list)} samples after parallel tempering exchange')
+            self.local_history.clear()
+
+    def recover(self) -> bool:
+        """
+        Override recover to broadcast recovered data to the governing process.
+
+        After successful recovery, immediately broadcasts the recovered order parameters
+        and fluctuations to the SimulationRunner so it can populate its history dictionary
+        with the correct parameter keys.
+        """
+        # Call parent's recover method
+        success = super().recover()
+
+        # TODO: this is wrong. the order parameters history contains data for different temperatures.
+
+        if success and self.working_folder is not None:
+            logger.info(f"SimulationProcess[{self.index}]: Broadcasting recovered data to runner")
+
+            # Broadcast recovered order parameters if available
+            if len(self.local_history.order_parameters_list) > 0:
+                try:
+                    # Send all recovered order parameters
+                    op_data = self.local_history.order_parameters  # All recovered
+                    self.queue.put((MessageType.OrderParameters, self.index, (self.state.parameters, op_data)))
+                    logger.debug(f"SimulationProcess[{self.index}]: Sent recovered order parameters")
+                except Exception as e:
+                    logger.warning(f"SimulationProcess[{self.index}]: Failed to broadcast recovered order parameters: {e}")
+
+            # Broadcast recovered fluctuations if available
+            if len(self.local_history.fluctuations_list) > 0:
+                try:
+                    # Send all recovered fluctuations
+                    fl_data = self.local_history.fluctuations  # All recovered
+                    self.queue.put((MessageType.Fluctuations, self.index, (self.state.parameters, fl_data)))
+                    logger.debug(f"SimulationProcess[{self.index}]: Sent recovered fluctuations")
+                except Exception as e:
+                    logger.warning(f"SimulationProcess[{self.index}]: Failed to broadcast recovered fluctuations: {e}")
+
+            # Also broadcast the current state so runner knows the actual parameters
+            try:
+                self.queue.put((MessageType.State, self.index, self.state))
+                logger.debug(f"SimulationProcess[{self.index}]: Sent recovered state")
+            except Exception as e:
+                logger.warning(f"SimulationProcess[{self.index}]: Failed to broadcast recovered state: {e}")
+
+            # Send ping
+            try:
+                self._send_ping()
+                logger.debug(f"SimulationProcess[{self.index}]: Sent ping after recovery")
+            except Exception as e:
+                logger.warning(f"SimulationProcess[{self.index}]: Failed to send ping after recovery: {e}")
+
+        return success

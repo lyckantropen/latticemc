@@ -93,19 +93,34 @@ class TestCSVSaving:
             df_csv = pd.read_csv(data_dir / 'parameter_summary_final.csv')
             df_xz = pd.read_pickle(data_dir / 'parameter_summary_final.xz', compression='xz')
 
-            # Verify CSV and XZ contain same data
-            pd.testing.assert_frame_equal(df_csv, df_xz)
+            # Verify CSV and XZ contain same data (but handle type differences)
+            # CSV converts Decimal to float, while XZ preserves Decimal objects
+            assert len(df_csv) == len(df_xz), "Both formats should have same number of rows"
+            assert df_csv.shape[1] == df_xz.shape[1], "Both formats should have same number of columns"
+
+            # Check that numeric values match (accounting for type conversion)
+            for col in df_csv.columns:
+                if 'temperature' in col or 'lam' in col or 'tau' in col:
+                    # For parameter columns, compare as floats
+                    pd.testing.assert_series_equal(
+                        df_csv[col].astype(float),
+                        df_xz[col].astype(float),
+                        check_names=False
+                    )
+                else:
+                    # For other columns, compare directly
+                    pd.testing.assert_series_equal(df_csv[col], df_xz[col], check_names=False)
 
             # Verify we have rows for both parameter sets
             assert len(df_csv) == 2
 
             # Check that parameter values are correctly saved
-            temps = sorted(df_csv['temperature'].tolist())
+            temps = sorted(df_csv['parameters_temperature'].tolist())
             assert temps == [1.0, 2.0]
 
             # Verify decorrelated averages structure and reasonableness
             for _, row in df_csv.iterrows():
-                temp = row['temperature']
+                temp = row['parameters_temperature']
                 if temp == 1.0:
                     params = parameters1
                 else:

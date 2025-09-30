@@ -1,5 +1,7 @@
 """Data structures and type definitions for lattice Monte Carlo simulations."""
 
+from __future__ import annotations
+
 import logging
 from dataclasses import dataclass, field
 from decimal import Decimal
@@ -18,14 +20,6 @@ particle_dof = np.dtype([
     ('p', np.int8)
 ], align=True)
 
-# declaration of the above for use in OpenCL
-particle_dof_cdecl = """
-typedef struct __attribute__ ((packed)) {
-    float4  x;
-    char p;
-} particle_dof;
-"""
-
 # per-particle properties (other than DoF)
 particle_props = np.dtype([
     ('t32', np.float32, 10),
@@ -35,18 +29,6 @@ particle_props = np.dtype([
     ('energy', np.float32),
     ('p', np.float32)
 ], align=True)
-
-# declaration of the above for use in OpenCL
-particle_props_cdecl = """
-typedef struct __attribute__ ((packed)) {
-    float  t32[10];
-    float  t20[6];
-    float  t22[6];
-    ushort3 index;
-    float energy;
-    float p;
-} particle_props;
-"""
 
 # data type to store the order parameters
 gathered_order_parameters = np.dtype([
@@ -64,6 +46,28 @@ simulation_stats = np.dtype([
     ('accepted_x', np.int32),
     ('accepted_p', np.int32),
 ])
+
+
+def extract_scalar_value(value: Any) -> Any:
+    """
+    Extract scalar value from numpy arrays/scalars or return the value as-is.
+
+    This helper function handles the common pattern of extracting values from
+    numpy arrays and scalars using .item(), while leaving other types unchanged.
+
+    Parameters
+    ----------
+    value : Any
+        The value to extract from (numpy array/scalar or regular Python type)
+
+    Returns
+    -------
+    Any
+        The extracted scalar value
+    """
+    if isinstance(value, (np.ndarray, np.number)):
+        return value.item()
+    return value
 
 
 @dataclass
@@ -102,15 +106,19 @@ class Lattice:
             data['properties'] = self.properties
         return data
 
-    def from_npz_dict(self, data: dict) -> None:
+    @classmethod
+    def from_npz_dict(cls, data: dict) -> Lattice:
         """Load lattice data from NPZ dictionary."""
-        self.X = int(data['lattice_X'].item()) if hasattr(data['lattice_X'], 'item') else int(data['lattice_X'])
-        self.Y = int(data['lattice_Y'].item()) if hasattr(data['lattice_Y'], 'item') else int(data['lattice_Y'])
-        self.Z = int(data['lattice_Z'].item()) if hasattr(data['lattice_Z'], 'item') else int(data['lattice_Z'])
+        lattice = cls(
+            X=int(extract_scalar_value(data['lattice_X'])),
+            Y=int(extract_scalar_value(data['lattice_Y'])),
+            Z=int(extract_scalar_value(data['lattice_Z']))
+        )
         if 'particles' in data:
-            self.particles = data['particles']
+            lattice.particles = data['particles']
         if 'properties' in data:
-            self.properties = data['properties']
+            lattice.properties = data['properties']
+        return lattice
 
 
 @dataclass
@@ -125,20 +133,30 @@ class DefiningParameters:
         return (self.temperature, self.tau, self.lam).__hash__()
 
     def to_dict(self) -> dict:
-        """Convert parameters to dictionary for JSON serialization."""
+        """Convert parameters to dictionary for serialization."""
         return {
-            'temperature': float(self.temperature),
-            'lam': float(self.lam),
-            'tau': float(self.tau)
+            'parameters_temperature': str(self.temperature),
+            'parameters_lam': str(self.lam),
+            'parameters_tau': str(self.tau)
         }
 
     def to_npz_dict(self) -> dict:
         """Convert parameters to dictionary for NPZ file saving."""
-        return {
-            'parameters_temperature': float(self.temperature),
-            'parameters_lam': float(self.lam),
-            'parameters_tau': float(self.tau)
-        }
+        return self.to_dict()
+
+    @classmethod
+    def from_dict(cls, data: dict) -> DefiningParameters:
+        """Create DefiningParameters instance from dictionary data."""
+        return cls(
+            temperature=Decimal(str(extract_scalar_value(data['parameters_temperature']))),
+            lam=Decimal(str(extract_scalar_value(data['parameters_lam']))),
+            tau=Decimal(str(extract_scalar_value(data['parameters_tau'])))
+        )
+
+    @classmethod
+    def from_npz_dict(cls, data: dict) -> DefiningParameters:
+        """Create DefiningParameters instance from NPZ dictionary data."""
+        return cls.from_dict(data)
 
     def get_folder_name(self) -> str:
         """Generate a folder name from DefiningParameters.
@@ -165,7 +183,7 @@ class LatticeState:
     lattice_averages: Shaped[np.ndarray, "..."] = field(default_factory=lambda: np.empty(
         0, dtype=particle_props))  # instantaneous order parameters
 
-    def update_from(self, other: "LatticeState") -> None:
+    def update_from(self, other: LatticeState) -> None:
         """Update this state from another state (used in parallel tempering)."""
         # parameters stay the same
         self.lattice = other.lattice
@@ -193,10 +211,10 @@ class LatticeState:
                 for field_name in lattice_avg_item.dtype.names:
                     field_value = lattice_avg_item[field_name]
                     # Handle scalar values
-                    if hasattr(field_value, 'item') and field_value.size == 1:
-                        result['lattice_averages'][field_name] = float(field_value.item())
+                    if isinstance(field_value, (np.ndarray, np.number)) and field_value.size == 1:
+                        result['lattice_averages'][field_name] = float(extract_scalar_value(field_value))
                     # Handle array values - take first element or convert appropriately
-                    elif hasattr(field_value, '__len__') and len(field_value) > 0:
+                    elif isinstance(field_value, (np.ndarray, list, tuple)) and len(field_value) > 0:
                         if len(field_value) == 1:
                             result['lattice_averages'][field_name] = float(field_value[0])
                         else:
@@ -210,49 +228,42 @@ class LatticeState:
 
         return result
 
-    def to_npz_dict(self, include_lattice: bool = True, include_parameters: bool = True) -> dict:
+    def to_npz_dict(self) -> dict:
         """Convert lattice state data to dictionary for NPZ file saving."""
         data = {
             'iterations': self.iterations,
             'accepted_x': self.accepted_x,
-            'accepted_p': self.accepted_p
+            'accepted_p': self.accepted_p,
+            'wiggle_rate': self.wiggle_rate
         }
 
-        # Add lattice averages (structured array fields)
-        if len(self.lattice_averages) > 0:
-            lattice_avg = self.lattice_averages[0]  # Get the first (and only) element
-            for field_name in lattice_avg.dtype.names:
-                data[f'lattice_avg_{field_name}'] = lattice_avg[field_name]
+        lattice_data = self.lattice.to_npz_dict()
+        data.update(lattice_data)
 
-        # Include lattice data if requested
-        if include_lattice:
-            lattice_data = self.lattice.to_npz_dict()
-            data.update(lattice_data)
-
-        # Include parameters data if requested
-        if include_parameters:
-            params_data = self.parameters.to_npz_dict()
-            data.update(params_data)
+        params_data = self.parameters.to_npz_dict()
+        data.update(params_data)
 
         return data
 
-    def from_npz_dict(self, data: dict, load_lattice: bool = True, load_parameters: bool = False) -> None:
+    @classmethod
+    def from_npz_dict(cls, data: dict) -> LatticeState:
         """Load lattice state data from NPZ dictionary."""
-        self.iterations = int(data.get('iterations', 0))
-        self.accepted_x = int(data.get('accepted_x', 0))
-        self.accepted_p = int(data.get('accepted_p', 0))
+        from . import simulation_numba
 
-        # Load lattice averages if present
-        lattice_avg_fields = [key for key in data.keys() if key.startswith('lattice_avg_')]
-        if lattice_avg_fields:
-            # Create structured array from lattice average fields
-            # This would need more complex logic to reconstruct the proper dtype
-            # For now, we'll preserve the existing lattice_averages
-            pass
+        lattice = Lattice.from_npz_dict(data)
+        parameters = DefiningParameters.from_npz_dict(data)
+        instance = cls(lattice=lattice, parameters=parameters)
 
-        # Load lattice data if requested
-        if load_lattice:
-            self.lattice.from_npz_dict(data)
+        # Load simulation state data
+        instance.iterations = int(data.get('iterations', 0))
+        instance.accepted_x = int(data.get('accepted_x', 0))
+        instance.accepted_p = int(data.get('accepted_p', 0))
+        instance.wiggle_rate = float(data.get('wiggle_rate', 1.0))
+
+        # Recompute lattice_averages from the loaded lattice state
+        instance.lattice_averages = simulation_numba._get_lattice_averages(instance.lattice)
+
+        return instance
 
 
 @dataclass
@@ -269,13 +280,23 @@ class OrderParametersHistory:
     fluctuations_list: List[Shaped[np.ndarray, "1"]] = field(default_factory=list, init=False)
     stats_list: List[Shaped[np.ndarray, "1"]] = field(default_factory=list, init=False)
 
-    # CAUTION: slow
+    def clear(self) -> None:
+        """Clear all stored data."""
+        self._order_parameters = np.empty(0, dtype=gathered_order_parameters)
+        self._fluctuations = np.empty(0, dtype=gathered_order_parameters)
+        self._stats = np.empty(0, dtype=simulation_stats)
+        self.order_parameters_list.clear()
+        self.fluctuations_list.clear()
+        self.stats_list.clear()
 
+    # CAUTION: slow
     @property
     def order_parameters(self) -> np.ndarray:
         """Get order parameters array, automatically syncing from list if needed."""
-        if len(self.order_parameters_list) > self._order_parameters.size:
+        if len(self.order_parameters_list) > 0:
             self._order_parameters = np.array(self.order_parameters_list, dtype=gathered_order_parameters)
+        else:
+            self._order_parameters = np.empty(0, dtype=gathered_order_parameters)
         return self._order_parameters
 
     @order_parameters.setter
@@ -287,13 +308,17 @@ class OrderParametersHistory:
         if len(value) > 0:
             for item in value:
                 self.order_parameters_list.append(item)
+        else:
+            self.order_parameters_list.clear()
 
     # CAUTION: slow
     @property
     def fluctuations(self) -> np.ndarray:
         """Get fluctuations array, automatically syncing from list if needed."""
-        if len(self.fluctuations_list) > self._fluctuations.size:
+        if len(self.fluctuations_list) > 0:
             self._fluctuations = np.array(self.fluctuations_list, dtype=gathered_order_parameters)
+        else:
+            self._fluctuations = np.empty(0, dtype=gathered_order_parameters)
         return self._fluctuations
 
     @fluctuations.setter
@@ -305,13 +330,17 @@ class OrderParametersHistory:
         if len(value) > 0:
             for item in value:
                 self.fluctuations_list.append(item)
+        else:
+            self.fluctuations_list.clear()
 
     # CAUTION: slow
     @property
     def stats(self) -> np.ndarray:
         """Get stats array, automatically syncing from list if needed."""
-        if len(self.stats_list) > self._stats.size:
+        if len(self.stats_list) > 0:
             self._stats = np.array(self.stats_list, dtype=simulation_stats)
+        else:
+            self._stats = np.empty(0, dtype=simulation_stats)
         return self._stats
 
     @stats.setter
@@ -323,6 +352,8 @@ class OrderParametersHistory:
         if len(value) > 0:
             for item in value:
                 self.stats_list.append(item)
+        else:
+            self.stats_list.clear()
 
     def to_dict(self) -> dict:
         """Convert latest order parameters and fluctuations to dictionary for JSON serialization."""
@@ -351,8 +382,9 @@ class OrderParametersHistory:
 
     def save_to_npz(self, order_parameters_path: Optional[str] = None,
                     fluctuations_path: Optional[str] = None,
+                    stats_path: Optional[str] = None,
                     fluctuations_from_history: bool = False) -> None:
-        """Save order parameters and fluctuations to NPZ files."""
+        """Save order parameters, fluctuations, and stats to NPZ files."""
         import numpy as np
 
         # Get current arrays from lists or fallback to existing arrays
@@ -361,6 +393,7 @@ class OrderParametersHistory:
             fluctuations_array = self.calculate_decorrelated_fluctuations()
         else:
             fluctuations_array = self._get_fluctuations_array()
+        stats_array = self._get_stats_array()
 
         if order_parameters_path and len(order_params_array) > 0:
             np.savez_compressed(order_parameters_path, order_parameters=order_params_array)
@@ -368,9 +401,13 @@ class OrderParametersHistory:
         if fluctuations_path and len(fluctuations_array) > 0:
             np.savez_compressed(fluctuations_path, fluctuations=fluctuations_array)
 
+        if stats_path and len(stats_array) > 0:
+            np.savez_compressed(stats_path, stats=stats_array)
+
     def load_from_npz(self, order_parameters_path: Optional[str] = None,
-                      fluctuations_path: Optional[str] = None) -> None:
-        """Load order parameters and fluctuations from NPZ files."""
+                      fluctuations_path: Optional[str] = None,
+                      stats_path: Optional[str] = None) -> None:
+        """Load order parameters, fluctuations, and stats from NPZ files."""
         import pathlib
 
         import numpy as np
@@ -386,6 +423,12 @@ class OrderParametersHistory:
             if fluc_path.exists():
                 fluc_data = np.load(fluc_path)
                 self.fluctuations = fluc_data['fluctuations']
+
+        if stats_path:
+            stats_path_obj = pathlib.Path(stats_path)
+            if stats_path_obj.exists():
+                stats_data = np.load(stats_path_obj)
+                self.stats = stats_data['stats']
 
     def append_order_parameters(self, item: np.ndarray) -> None:
         """Efficiently append order parameters using internal list."""

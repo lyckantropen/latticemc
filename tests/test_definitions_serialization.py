@@ -7,7 +7,9 @@ from pathlib import Path
 import numpy as np
 from pyfakefs.fake_filesystem_unittest import TestCase
 
-from latticemc.definitions import DefiningParameters, Lattice, LatticeState, OrderParametersHistory, gathered_order_parameters, particle_props
+from latticemc.definitions import (DefiningParameters, Lattice, LatticeState,
+                                   OrderParametersHistory, gathered_order_parameters,
+                                   particle_props, extract_scalar_value)
 from latticemc.lattice_tools import initialize_partially_ordered
 from latticemc.random_quaternion import random_quaternion
 
@@ -66,16 +68,137 @@ class TestDefinitionsJSONSerialization(TestCase):
         result = self.params.to_dict()
 
         # Check structure
-        expected_keys = {'temperature', 'lam', 'tau'}
+        expected_keys = {'parameters_temperature', 'parameters_lam', 'parameters_tau'}
         self.assertEqual(set(result.keys()), expected_keys)
 
-        # Check values and types
-        self.assertEqual(result['temperature'], 0.85)
-        self.assertEqual(result['lam'], 0.35)
-        self.assertEqual(result['tau'], 1.25)
-        self.assertIsInstance(result['temperature'], float)
-        self.assertIsInstance(result['lam'], float)
-        self.assertIsInstance(result['tau'], float)
+        # Check values and types - should now be strings to preserve Decimal precision
+        self.assertEqual(result['parameters_temperature'], '0.85')
+        self.assertEqual(result['parameters_lam'], '0.35')
+        self.assertEqual(result['parameters_tau'], '1.25')
+        self.assertIsInstance(result['parameters_temperature'], str)
+        self.assertIsInstance(result['parameters_lam'], str)
+        self.assertIsInstance(result['parameters_tau'], str)
+
+    def test_defining_parameters_round_trip_serialization(self):
+        """Test round-trip serialization of DefiningParameters maintains exact Decimal precision."""
+        # Test various Decimal values that could lose precision with float conversion
+        test_cases = [
+            # Standard case
+            DefiningParameters(temperature=Decimal('1.6'), lam=Decimal('0.3'), tau=Decimal('1.0')),
+            # High precision case
+            DefiningParameters(temperature=Decimal('1.234567890'), lam=Decimal('0.987654321'), tau=Decimal('2.111111111')),
+            # Edge cases
+            DefiningParameters(temperature=Decimal('0.1'), lam=Decimal('0.2'), tau=Decimal('0.9')),
+            DefiningParameters(temperature=Decimal('10.0'), lam=Decimal('5.5'), tau=Decimal('3.33')),
+        ]
+
+        for i, original_params in enumerate(test_cases):
+            with self.subTest(case=i, params=original_params):
+                # Test direct dict round-trip
+                params_dict = original_params.to_dict()
+                recovered_params = DefiningParameters.from_dict(params_dict)
+
+                # Check exact equality
+                self.assertEqual(original_params, recovered_params,
+                                 f"Direct round-trip failed for {original_params}")
+                self.assertEqual(hash(original_params), hash(recovered_params),
+                                 f"Hash mismatch after direct round-trip for {original_params}")
+
+                # Test JSON round-trip (most critical for recovery)
+                json_str = json.dumps(params_dict)
+                json_dict = json.loads(json_str)
+                json_recovered_params = DefiningParameters.from_dict(json_dict)
+
+                # Check exact equality after JSON serialization
+                self.assertEqual(original_params, json_recovered_params,
+                                 f"JSON round-trip failed for {original_params}")
+                self.assertEqual(hash(original_params), hash(json_recovered_params),
+                                 f"Hash mismatch after JSON round-trip for {original_params}")
+
+                # Verify individual Decimal values are preserved exactly
+                self.assertEqual(original_params.temperature, json_recovered_params.temperature)
+                self.assertEqual(original_params.lam, json_recovered_params.lam)
+                self.assertEqual(original_params.tau, json_recovered_params.tau)
+
+    def test_defining_parameters_from_dict_with_numpy_inputs(self):
+        """Test DefiningParameters.from_dict() with various numpy input types."""
+        # Test with numpy arrays and scalars (like from NPZ files)
+        # Note: Some numpy float types may lose precision, so we test the conversion works
+        # rather than expecting exact decimal matches
+        numpy_inputs = [
+            {
+                'parameters_temperature': np.float64(1.6),  # float64 preserves this exactly
+                'parameters_lam': np.float64(0.3),          # Use float64 for exact preservation
+                'parameters_tau': np.int32(1)
+            },
+            {
+                'parameters_temperature': np.array([2.5]),  # 1-element array
+                'parameters_lam': np.array([[0.4]]),        # nested array
+                'parameters_tau': np.int64(2)
+            },
+            {
+                'parameters_temperature': np.int32(1),      # Integer types are exact
+                'parameters_lam': np.int64(0),              # Integer types are exact
+                'parameters_tau': np.float64(1.5)          # Use float64 for precision
+            }
+        ]
+
+        expected_results = [
+            DefiningParameters(temperature=Decimal('1.6'), lam=Decimal('0.3'), tau=Decimal('1')),
+            DefiningParameters(temperature=Decimal('2.5'), lam=Decimal('0.4'), tau=Decimal('2')),
+            DefiningParameters(temperature=Decimal('1'), lam=Decimal('0'), tau=Decimal('1.5'))
+        ]
+
+        for i, (numpy_dict, expected) in enumerate(zip(numpy_inputs, expected_results)):
+            with self.subTest(case=i, input_dict=numpy_dict):
+                result = DefiningParameters.from_dict(numpy_dict)
+                self.assertEqual(result, expected,
+                                 f"Numpy input conversion failed for case {i}")
+                # Test that the result can be used as a dictionary key (proper hashing)
+                test_dict = {result: "test_value"}
+                self.assertIn(result, test_dict)
+
+    def test_defining_parameters_from_dict_precision_awareness(self):
+        """Test that float precision limitations are handled gracefully."""
+        # Test cases where numpy float types may lose precision
+        float32_dict = {
+            'parameters_temperature': np.float32(0.3),  # This will lose precision
+            'parameters_lam': np.float32(0.1),
+            'parameters_tau': np.float32(1.0)
+        }
+
+        # This should still work, just with the precision that float32 provides
+        result = DefiningParameters.from_dict(float32_dict)
+
+        # Verify the values are close to expected (but may not be exact due to float32 precision)
+        self.assertAlmostEqual(float(result.temperature), 0.3, places=6)
+        self.assertAlmostEqual(float(result.lam), 0.1, places=6)
+        self.assertAlmostEqual(float(result.tau), 1.0, places=6)
+
+        # Ensure it can still be used as a dictionary key
+        test_dict = {result: "test_value"}
+        self.assertIn(result, test_dict)
+
+    def test_extract_scalar_value_helper_function(self):
+        """Test the extract_scalar_value helper function with various input types."""
+        # Test regular Python types (should pass through unchanged)
+        self.assertEqual(extract_scalar_value(42), 42)
+        self.assertEqual(extract_scalar_value(3.14), 3.14)
+        self.assertEqual(extract_scalar_value("test"), "test")
+        self.assertEqual(extract_scalar_value([1, 2, 3]), [1, 2, 3])
+
+        # Test numpy scalars (should extract with .item())
+        self.assertEqual(extract_scalar_value(np.int32(100)), 100)
+        self.assertEqual(extract_scalar_value(np.float64(2.5)), 2.5)
+        self.assertEqual(extract_scalar_value(np.float32(1.5)), np.float32(1.5))
+
+        # Test numpy 0-d arrays (should extract with .item())
+        self.assertEqual(extract_scalar_value(np.array(5)), 5)
+        self.assertEqual(extract_scalar_value(np.array(7.7)), 7.7)
+
+        # Test numpy 1-element arrays (should extract with .item())
+        self.assertEqual(extract_scalar_value(np.array([9])), 9)
+        self.assertEqual(extract_scalar_value(np.array([4.2])), 4.2)
 
     def test_lattice_state_to_dict(self):
         """Test LatticeState.to_dict() method."""
@@ -134,7 +257,7 @@ class TestDefinitionsJSONSerialization(TestCase):
         params_dict = self.params.to_dict()
         params_json = json.dumps(params_dict)
         parsed_params = json.loads(params_json)
-        self.assertEqual(parsed_params['temperature'], 0.85)
+        self.assertEqual(parsed_params['parameters_temperature'], '0.85')
 
         # Test LatticeState
         state_dict = self.state.to_dict()
@@ -204,11 +327,11 @@ class TestDefinitionsNPZSerialization(TestCase):
         expected_keys = {'parameters_temperature', 'parameters_lam', 'parameters_tau'}
         self.assertEqual(set(result.keys()), expected_keys)
 
-        # Check values and types
-        self.assertEqual(result['parameters_temperature'], 0.9)
-        self.assertEqual(result['parameters_lam'], 0.4)
-        self.assertEqual(result['parameters_tau'], 1.1)
-        self.assertIsInstance(result['parameters_temperature'], float)
+        # Check values and types - now strings to preserve Decimal precision
+        self.assertEqual(result['parameters_temperature'], '0.9')
+        self.assertEqual(result['parameters_lam'], '0.4')
+        self.assertEqual(result['parameters_tau'], '1.1')
+        self.assertIsInstance(result['parameters_temperature'], str)
 
     def test_lattice_to_npz_dict_and_from_npz_dict(self):
         """Test Lattice NPZ serialization and deserialization."""
@@ -224,8 +347,7 @@ class TestDefinitionsNPZSerialization(TestCase):
         self.assertIsNotNone(npz_dict['properties'])
 
         # Test deserialization
-        new_lattice = Lattice(1, 1, 1)  # Start with different dimensions
-        new_lattice.from_npz_dict(npz_dict)
+        new_lattice = Lattice.from_npz_dict(npz_dict)
 
         # Check that dimensions were restored
         self.assertEqual(new_lattice.X, 3)
@@ -238,20 +360,18 @@ class TestDefinitionsNPZSerialization(TestCase):
 
     def test_lattice_state_to_npz_dict(self):
         """Test LatticeState.to_npz_dict() method."""
-        # Test with all options
-        result = self.state.to_npz_dict(include_lattice=True, include_parameters=True)
+        # Test complete state serialization
+        result = self.state.to_npz_dict()
 
         # Check basic state data
         self.assertEqual(result['iterations'], 200)
         self.assertEqual(result['accepted_x'], 100)
         self.assertEqual(result['accepted_p'], 50)
 
-        # Check lattice averages are included with proper naming
-        self.assertIn('lattice_avg_energy', result)
-        self.assertIn('lattice_avg_p', result)
-        self.assertIn('lattice_avg_t32', result)
-        self.assertAlmostEqual(float(result['lattice_avg_energy']), -3.8, places=5)
-        np.testing.assert_array_almost_equal(result['lattice_avg_t32'], np.arange(10) * 0.1, decimal=5)
+        # Note: lattice_averages are not saved as they can be recomputed from lattice state
+        # Check that lattice_avg_* fields are not present
+        lattice_avg_keys = [k for k in result.keys() if k.startswith('lattice_avg_')]
+        self.assertEqual(len(lattice_avg_keys), 0, "lattice_avg fields should not be saved")
 
         # Check lattice data is included
         self.assertIn('lattice_X', result)
@@ -260,28 +380,20 @@ class TestDefinitionsNPZSerialization(TestCase):
 
         # Check parameters data is included
         self.assertIn('parameters_temperature', result)
-        self.assertEqual(result['parameters_temperature'], 0.9)
+        self.assertEqual(result['parameters_temperature'], '0.9')
 
-        # Test with selective inclusion
-        result_minimal = self.state.to_npz_dict(include_lattice=False, include_parameters=False)
-        self.assertNotIn('lattice_X', result_minimal)
-        self.assertNotIn('parameters_temperature', result_minimal)
-        self.assertIn('iterations', result_minimal)  # State data should still be there
+        # All data should be included (lattice, parameters, and state)
+        self.assertIn('lattice_X', result)
+        self.assertIn('parameters_temperature', result)
+        self.assertIn('iterations', result)
 
     def test_lattice_state_from_npz_dict(self):
         """Test LatticeState.from_npz_dict() method."""
         # Create NPZ data
-        npz_data = self.state.to_npz_dict(include_lattice=True, include_parameters=False)
+        npz_data = self.state.to_npz_dict()
 
-        # Create new state and restore from NPZ data
-        new_params = DefiningParameters(
-            temperature=Decimal("0.5"), lam=Decimal("0.1"), tau=Decimal("0.8")
-        )
-        new_lattice = Lattice(2, 2, 2)
-        new_state = LatticeState(parameters=new_params, lattice=new_lattice)
-
-        # Load from NPZ dict
-        new_state.from_npz_dict(npz_data, load_lattice=True, load_parameters=False)
+        # Create new state from NPZ data
+        new_state = LatticeState.from_npz_dict(npz_data)
 
         # Check that state data was restored
         self.assertEqual(new_state.iterations, 200)
@@ -293,8 +405,10 @@ class TestDefinitionsNPZSerialization(TestCase):
         self.assertEqual(new_state.lattice.Y, 3)
         self.assertEqual(new_state.lattice.Z, 3)
 
-        # Check that parameters were NOT restored (load_parameters=False)
-        self.assertEqual(new_state.parameters.temperature, Decimal("0.5"))
+        # Check that parameters were restored
+        self.assertEqual(new_state.parameters.temperature, Decimal("0.9"))
+        self.assertEqual(new_state.parameters.lam, Decimal("0.4"))
+        self.assertEqual(new_state.parameters.tau, Decimal("1.1"))
 
     def test_order_parameters_history_save_and_load_npz(self):
         """Test OrderParametersHistory NPZ save and load methods."""
@@ -359,8 +473,12 @@ class TestDefinitionsNPZSerialization(TestCase):
         lattice_data = self.lattice.to_npz_dict()
         full_npz_data.update(lattice_data)
 
-        # Add state data
-        state_data = self.state.to_npz_dict(include_lattice=False, include_parameters=False)
+        # Add state data (just the state fields, not duplicating lattice/params)
+        state_data = {
+            'iterations': self.state.iterations,
+            'accepted_x': self.state.accepted_x,
+            'accepted_p': self.state.accepted_p
+        }
         full_npz_data.update(state_data)
 
         # Simulate saving and loading via NPZ
@@ -374,7 +492,7 @@ class TestDefinitionsNPZSerialization(TestCase):
         self.assertAlmostEqual(float(loaded_data['parameters_temperature']), 0.9, places=5)
         self.assertEqual(int(loaded_data['lattice_X']), 3)
         self.assertEqual(int(loaded_data['iterations']), 200)
-        self.assertAlmostEqual(float(loaded_data['lattice_avg_energy']), -3.8, places=5)
+        # Note: lattice_avg_* fields are not saved as they can be recomputed
 
         # Test reconstruction of objects
         new_params = DefiningParameters(

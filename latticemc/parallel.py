@@ -100,7 +100,8 @@ class SimulationRunner(threading.Thread):
         process-level and parameter-level saving frequency.
     auto_recover : bool, default=False
         Whether to attempt recovery from previously saved state when working_folder
-        is specified and recovery markers are found.
+        is specified and saved states are found. Note that
+        `order_parameters_history` must contain the parameter keys for recovery.
     plot_save_interval_sec : float, default=60.0
         How often to generate and save temperature plots (in seconds of real time).
         Plots are saved to both TensorBoard and working folder if available.
@@ -249,23 +250,8 @@ class SimulationRunner(threading.Thread):
             self._exchange_barrier = mp.Barrier(len(self.states))
 
         # TensorBoard logging setup - always enabled
-        self._tb_logger: Optional[TensorBoardLogger]
-        try:
-            # Use working_folder/tensorboard if working_folder is specified, otherwise use default
-            tb_log_dir = None
-            if self.working_folder is not None:
-                tb_log_dir = f"{self.working_folder}/tensorboard"
-
-            self._tb_logger = TensorBoardLogger(log_dir=tb_log_dir)
-            logger.info(f"TensorBoard logging enabled, writing to {self._tb_logger.log_dir}")
-        except Exception as e:
-            logger.error(f"Failed to initialize TensorBoard logging: {e}")
-            self._tb_logger = None
-
-        # Data saving tracking - count received messages for each parameter set
-        self._order_parameters_received_count: Dict[DefiningParameters, int] = defaultdict(int)
-        self._fluctuations_received_count: Dict[DefiningParameters, int] = defaultdict(int)
-        self._states_received_count: Dict[DefiningParameters, int] = defaultdict(int)
+        tb_log_dir = f"{self.working_folder}/tensorboard"
+        self._tb_logger = TensorBoardLogger(log_dir=tb_log_dir)
 
         # message handlers mapping
         self.message_handlers = {
@@ -312,6 +298,17 @@ class SimulationRunner(threading.Thread):
             (self._post_loop_save_final_summary, ['start_time']),
         ]
 
+        # Recovery support
+        if self.auto_recover and self.working_folder is not None:
+            self.recover()
+
+    def recover(self) -> None:
+        """Attempt to recover simulation states from working folder if enabled."""
+        logger.info(f"Attempting to recover simulation states from working folder {self.working_folder}")
+        self._load_order_parameters()
+        self._load_fluctuations()
+        self._load_states()
+
     def _update_progress_bars(self) -> None:
         """Update all progress bars (tqdm objects) based on current _progress_meters."""
         if self._progress_bars is None:
@@ -334,28 +331,40 @@ class SimulationRunner(threading.Thread):
     def _handle_order_parameters_message(self, index: int, msg: Any, pt_ready: List[Tuple[int, ParallelTemperingParameters]]) -> None:
         """Handle OrderParameters message."""
         parameters, op = msg
+
+        # Create entry if it doesn't exist (for recovery cases)
+        if parameters not in self.order_parameters_history:
+            from .definitions import OrderParametersHistory
+            matching_state: LatticeState = [state for state in self.states if state.parameters == parameters][0]
+            self.order_parameters_history[parameters] = OrderParametersHistory(matching_state.lattice.size)
+            logger.debug(f"Created new order_parameters_history entry for recovered parameters: {parameters}")
+
         self.order_parameters_history[parameters].append_order_parameters(op)
         # Log order parameters immediately when received
         self._log_order_parameters_to_tensorboard(parameters, op)
 
-        # Save order parameters periodically
-        self._order_parameters_received_count[parameters] += 1
-        if self._order_parameters_received_count[parameters]:
-            self._save_order_parameters(parameters)
-            self._save_parameter_summary(parameters)
+        # Save order parameters
+        self._save_order_parameters(parameters)
+        self._save_parameter_summary(parameters)
 
     def _handle_fluctuations_message(self, index: int, msg: Any, pt_ready: List[Tuple[int, ParallelTemperingParameters]]) -> None:
         """Handle Fluctuations message."""
         parameters, fl = msg
+
+        # Create entry if it doesn't exist (for recovery cases)
+        if parameters not in self.order_parameters_history:
+            from .definitions import OrderParametersHistory
+            matching_state: LatticeState = [state for state in self.states if state.parameters == parameters][0]
+            self.order_parameters_history[parameters] = OrderParametersHistory(matching_state.lattice.size)
+            logger.debug(f"Created new order_parameters_history entry for recovered parameters: {parameters}")
+
         self.order_parameters_history[parameters].append_fluctuations(fl)
         # Log fluctuations immediately when received
         self._log_fluctuations_to_tensorboard(parameters, fl)
 
-        # Save fluctuations periodically
-        self._fluctuations_received_count[parameters] += 1
-        if self._fluctuations_received_count[parameters]:
-            self._save_fluctuations(parameters)
-            self._save_parameter_summary(parameters)
+        # Save fluctuations
+        self._save_fluctuations(parameters)
+        self._save_parameter_summary(parameters)
 
     def _handle_state_message(self, index: int, msg: Any, pt_ready: List[Tuple[int, ParallelTemperingParameters]]) -> None:
         """Handle State message."""
@@ -368,10 +377,8 @@ class SimulationRunner(threading.Thread):
 
         # Save state periodically
         parameters = msg.parameters
-        self._states_received_count[parameters] += 1
-        if self._states_received_count[parameters]:
-            self._save_state(parameters)
-            self._save_parameter_summary(parameters)
+        self._save_state(parameters)
+        self._save_parameter_summary(parameters)
 
     def _handle_parallel_tempering_signup_message(self, index: int, msg: Any, pt_ready: List[Tuple[int, ParallelTemperingParameters]]) -> None:
         """Handle ParallelTemperingSignUp message."""
@@ -403,8 +410,7 @@ class SimulationRunner(threading.Thread):
     # Pre-loop task handlers
     def _pre_loop_log_temperature_assignments(self) -> None:
         """Log all temperature assignments to TensorBoard."""
-        if self._tb_logger:
-            self._tb_logger.log_simulation_temperature_assignments(self.states)
+        self._tb_logger.log_simulation_temperature_assignments(self.states)
 
     def _pre_loop_create_progress_bars(self) -> None:
         """Create progress bars (tqdm objects) based on the specified mode."""
@@ -492,14 +498,12 @@ class SimulationRunner(threading.Thread):
 
     def _periodic_save_temperature_plots(self, start_time: float, pt_ready: List[Tuple[int, ParallelTemperingParameters]]) -> None:
         """Save temperature plots."""
-        if self._tb_logger:
-            self._save_temperature_plots(recent_points=self.plot_recent_points, start_time=start_time)
+        self._save_temperature_plots(recent_points=self.plot_recent_points, start_time=start_time)
 
     # Post-loop task handlers
     def _post_loop_close_tensorboard(self) -> None:
         """Close TensorBoard logger."""
-        if self._tb_logger:
-            self._tb_logger.close()
+        self._tb_logger.close()
 
     def _post_loop_join_processes(self) -> None:
         """Ensure all processes have finished."""
@@ -754,10 +758,8 @@ class SimulationRunner(threading.Thread):
                 pt_param.pipe.send(pt_param.parameters)
                 logger.debug(f'SimulationRunner: No exchange for unpaired replica {i} (sim {idx}, T={pt_param.parameters.temperature})')
 
-        # Log overall statistics and current temperatures to TensorBoard
-        if self._tb_logger:
-            # Log current temperature for each process after exchanges using the post-exchange assignments
-            self._log_current_temperatures_after_exchange(pt_ready, self._exchange_counter)
+        # Log current temperature for each process after exchanges using the post-exchange assignments
+        self._log_current_temperatures_after_exchange(pt_ready, self._exchange_counter)
 
         # Increment the global exchange counter after completing this exchange round
         self._exchange_counter += 1
@@ -806,10 +808,6 @@ class SimulationRunner(threading.Thread):
     def has_thread_exception(self) -> bool:
         """Check if the SimulationRunner thread encountered an exception."""
         return self._thread_exception is not None
-
-    def get_thread_exception(self) -> Optional[Exception]:
-        """Get the exception that occurred in the SimulationRunner thread, if any."""
-        return self._thread_exception
 
     def finished_gracefully(self) -> bool:
         """
@@ -879,9 +877,6 @@ class SimulationRunner(threading.Thread):
 
     def _log_order_parameters_to_tensorboard(self, parameters: DefiningParameters, op: np.ndarray) -> None:
         """Log order parameters immediately when received."""
-        if not self._tb_logger:
-            return
-
         try:
             # Use the length of order parameters history as step
             step = len(self.order_parameters_history[parameters].order_parameters_list) if parameters in self.order_parameters_history else None
@@ -897,9 +892,6 @@ class SimulationRunner(threading.Thread):
 
     def _log_fluctuations_to_tensorboard(self, parameters: DefiningParameters, fl: np.ndarray) -> None:
         """Log fluctuations immediately when received."""
-        if not self._tb_logger:
-            return
-
         try:
             # Use the length of fluctuations history as step
             step = len(self.order_parameters_history[parameters].fluctuations_list) if parameters in self.order_parameters_history else None
@@ -915,9 +907,6 @@ class SimulationRunner(threading.Thread):
 
     def _log_state_to_tensorboard(self, state: LatticeState) -> None:
         """Log state information (energy, acceptance rates) immediately when received."""
-        if not self._tb_logger:
-            return
-
         try:
             # Log lattice energy
             energy = state.lattice_averages['energy']
@@ -941,9 +930,6 @@ class SimulationRunner(threading.Thread):
 
     def _log_current_temperatures_after_exchange(self, pt_ready: List[Tuple[int, ParallelTemperingParameters]], step: Optional[int] = None) -> None:
         """Log current temperature for each simulation process after parallel tempering exchange."""
-        if not self._tb_logger:
-            return
-
         try:
             # After exchange, each process gets the temperature from the parameters that were sent to it
             # The pt_ready list contains (simulation_index, ParallelTemperingParameters) for each process
@@ -981,17 +967,16 @@ class SimulationRunner(threading.Thread):
                 recent_points=recent_points,
                 fluctuations_from_history=fluctuations_from_history)
 
-            # Log plots to TensorBoard if available
-            if self._tb_logger:
-                for plot_name, img in all_plots.items():
-                    img_array = np.array(img)
-                    # TensorBoard expects CHW format (Color, Height, Width)
-                    if len(img_array.shape) == 3:
-                        img_array = img_array.transpose(2, 0, 1)  # HWC -> CHW
-                    tag = f'{plot_name}_vs_temperature'
-                    self._tb_logger.writer.add_image(tag, img_array, current_step, dataformats='CHW')
+            # Log plots to TensorBoard
+            for plot_name, img in all_plots.items():
+                img_array = np.array(img)
+                # TensorBoard expects CHW format (Color, Height, Width)
+                if len(img_array.shape) == 3:
+                    img_array = img_array.transpose(2, 0, 1)  # HWC -> CHW
+                tag = f'{plot_name}_vs_temperature'
+                self._tb_logger.writer.add_image(tag, img_array, current_step, dataformats='CHW')
 
-                logger.debug(f"Temperature-based plots logged to TensorBoard at step {current_step}")
+            logger.debug(f"Temperature-based plots logged to TensorBoard at step {current_step}")
 
             # Save plots to working folder if available
             if self.working_folder and all_plots:
@@ -1061,6 +1046,24 @@ class SimulationRunner(threading.Thread):
         except Exception as e:
             logger.error(f"Error saving order parameters for {parameters}: {e}")
 
+    def _load_order_parameters(self) -> None:
+        """Load existing order parameters from working folder if available."""
+        if self.working_folder is None:
+            return
+
+        try:
+            for parameters in self.order_parameters_history.keys():
+                paths = self._get_parameter_save_paths(parameters)
+                if not paths:
+                    continue
+
+                if paths['order_parameters'].is_file():
+                    history = self.order_parameters_history[parameters]
+                    history.load_from_npz(order_parameters_path=str(paths['order_parameters']))
+                    logger.info(f"Loaded existing order parameters for {parameters} from {paths['order_parameters']}")
+        except Exception as e:
+            logger.error(f"Error loading existing order parameters: {e}")
+
     def _save_fluctuations(self, parameters: DefiningParameters, fluctuations_from_history: bool = False) -> None:
         """Save fluctuations for a specific parameter set."""
         if self.working_folder is None:
@@ -1082,6 +1085,24 @@ class SimulationRunner(threading.Thread):
 
         except Exception as e:
             logger.error(f"Error saving fluctuations for {parameters}: {e}")
+
+    def _load_fluctuations(self) -> None:
+        """Load existing fluctuations from working folder if available."""
+        if self.working_folder is None:
+            return
+
+        try:
+            for parameters in self.order_parameters_history.keys():
+                paths = self._get_parameter_save_paths(parameters)
+                if not paths:
+                    continue
+
+                if paths['fluctuations'].is_file():
+                    history = self.order_parameters_history[parameters]
+                    history.load_from_npz(fluctuations_path=str(paths['fluctuations']))
+                    logger.info(f"Loaded existing fluctuations for {parameters} from {paths['fluctuations']}")
+        except Exception as e:
+            logger.error(f"Error loading existing fluctuations: {e}")
 
     def _save_state(self, parameters: DefiningParameters) -> None:
         """Save the latest state for a specific parameter set."""
@@ -1109,18 +1130,38 @@ class SimulationRunner(threading.Thread):
 
             # Save lattice state using LatticeState method
             if matching_state.lattice.particles is not None:
-                save_data = matching_state.to_npz_dict(include_lattice=False, include_parameters=False)
-                # Add only particles from lattice (not full lattice data to avoid duplication)
-                save_data['particles'] = matching_state.lattice.particles
-
+                save_data = matching_state.to_npz_dict()
                 np.savez_compressed(paths['state'], **save_data)
                 logger.debug(f"Saved state for {parameters} to {paths['state']}")
 
         except Exception as e:
             logger.error(f"Error saving state for {parameters}: {e}")
 
+    def _load_states(self) -> None:
+        """Load existing states from working folder if available."""
+        if self.working_folder is None:
+            return
+
+        try:
+            for i in range(len(self.states)):
+                parameters = self.states[i].parameters
+                paths = self._get_parameter_save_paths(parameters)
+                if not paths:
+                    continue
+
+                if paths['state'].is_file():
+                    npz_dict = np.load(paths['state'], allow_pickle=True)
+                    self.states[i] = LatticeState.from_npz_dict(npz_dict)
+                    logger.info(f"Loaded existing state for {parameters} from {paths['state']}")
+        except Exception as e:
+            logger.error(f"Error loading existing states: {e}")
+
     def _save_parameter_summary(self, parameters: DefiningParameters) -> None:
-        """Save a JSON summary for a specific parameter set similar to Simulation class."""
+        """
+        Save a JSON summary for a specific parameter set similar to Simulation class.
+
+        This data is only a summary - it cannot be use to recover the full state.
+        """
         if self.working_folder is None:
             return
 
