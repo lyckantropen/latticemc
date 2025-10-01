@@ -141,13 +141,13 @@ def _create_parameter_row(parameters: DefiningParameters,
         row = {**parameters.to_dict(), **lattice_dims}
 
         # Add all statistics
-        for name in op_avg.dtype.names:
+        for name in op_avg.dtype.names:  # type: ignore[union-attr]
             row[f'avg_{name}'] = float(op_avg[name])
 
-        for name in fl_avg.dtype.names:
+        for name in fl_avg.dtype.names:  # type: ignore[union-attr]
             row[f'fluct_{name}'] = float(fl_avg[name])
 
-        for name in hist_fluct.dtype.names:
+        for name in hist_fluct.dtype.names:  # type: ignore[union-attr]
             row[f'hist_fluct_{name}'] = float(hist_fluct[name])
 
         return row
@@ -192,7 +192,7 @@ def _save_per_parameter_data(working_folder: str,
         if len(op_array) > 0:
             for i, item in enumerate(op_array):
                 row = {'step': i}
-                for name in op_array.dtype.names:
+                for name in op_array.dtype.names:  # type: ignore[union-attr]
                     row[f'op_{name}'] = float(item[name])
                 combined_data.append(row)
 
@@ -206,7 +206,7 @@ def _save_per_parameter_data(working_folder: str,
                     row = {'step': i}
                     combined_data.append(row)
 
-                for name in fl_array.dtype.names:
+                for name in fl_array.dtype.names:  # type: ignore[union-attr]
                     row[f'fl_{name}'] = float(item[name])
 
         if combined_data:
