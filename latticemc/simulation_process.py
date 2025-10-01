@@ -84,6 +84,17 @@ class SimulationProcess(Simulation, mp.Process):
         # Get any updaters from parent class
         super_updaters = super()._create_additional_updaters()
 
+        updaters: List[Updater] = [*super_updaters]
+
+        # Add parallel tempering updater if enabled
+        if self.parallel_tempering_interval is not None and self.exchange_barrier is not None:
+            parallel_tempering_updater = CallbackUpdater(
+                callback=lambda _: self._parallel_tempering(),
+                how_often=self.parallel_tempering_interval,
+                since_when=self.parallel_tempering_interval
+            )
+            updaters.append(parallel_tempering_updater)
+
         # Queue communication updaters
         order_parameters_broadcaster = CallbackUpdater(
             callback=lambda _: self._broadcast_order_parameters(),
@@ -106,22 +117,12 @@ class SimulationProcess(Simulation, mp.Process):
             since_when=0
         )
 
-        updaters: List[Updater] = [
-            *super_updaters,
+        updaters += [
             order_parameters_broadcaster,
             fluctuations_broadcaster,
             state_broadcaster,
             ping_updater
         ]
-
-        # Add parallel tempering updater if enabled
-        if self.parallel_tempering_interval is not None and self.exchange_barrier is not None:
-            parallel_tempering_updater = CallbackUpdater(
-                callback=lambda _: self._parallel_tempering(),
-                how_often=self.parallel_tempering_interval,
-                since_when=self.parallel_tempering_interval
-            )
-            updaters.append(parallel_tempering_updater)
 
         return updaters
 
@@ -224,6 +225,10 @@ class SimulationProcess(Simulation, mp.Process):
 
         # energy needs to be scaled by number of particles (total system energy not per-particle)
         # the energy stored in order parameters is a lattice average
+        if len(self.local_history.order_parameters_list) == 0:
+            logger.error(f'SimulationProcess[{self.index}, {self.state.parameters}]: No order parameters available for parallel tempering, skipping exchange')
+            return
+
         energy = self.local_history.order_parameters_list[-1]['energy'] * cast(np.ndarray, self.state.lattice.particles).size
         our, theirs = mp.Pipe()
         self.queue.put((MessageType.ParallelTemperingSignUp, self.index, ParallelTemperingParameters(
