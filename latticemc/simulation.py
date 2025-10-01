@@ -219,6 +219,7 @@ class Simulation:
             start_step = self.current_step
             remaining_cycles = self.cycles - start_step
             progress_iterator = self._create_progress_iterator(remaining_cycles)
+            logger.debug(f'Remaining cycles: {remaining_cycles}')
 
             for step in progress_iterator:
                 # Calculate absolute step number

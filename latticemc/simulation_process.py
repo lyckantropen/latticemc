@@ -204,7 +204,7 @@ class SimulationProcess(Simulation, mp.Process):
 
     def _send_ping(self) -> None:
         """Send a ping message to indicate the process is alive and healthy."""
-        self.queue.put((MessageType.Ping, self.index, self.state.iterations))
+        self.queue.put((MessageType.Ping, self.index, self.current_step))
 
     def _parallel_tempering(self) -> None:
         """Announce readiness for parallel tempering and perform exchange if selected."""
