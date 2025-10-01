@@ -114,7 +114,6 @@ def main():
         order_parameters_history=order_parameters_history,
         cycles=1000,  # Short run for demonstration
         report_order_parameters_every=200,
-        report_fluctuations_every=200,
         report_state_every=200,
         parallel_tempering_interval=100,  # Synchronized exchange every 100 iterations
         working_folder=str(working_folder),  # Enable automatic saving for each process

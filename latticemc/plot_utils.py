@@ -79,7 +79,7 @@ def create_field_data_vs_temperature_plots(
     Parameters
     ----------
     data_type : str
-        Type of data to plot ('order_parameters', 'fluctuations' or 'fluctuations_from_history')
+        Type of data to plot ('order_parameters' or 'fluctuations')
     order_parameters_history : Dict[DefiningParameters, OrderParametersHistory]
         Dictionary mapping parameters to their order parameter histories
     recent_points : int, optional
@@ -107,21 +107,20 @@ def create_field_data_vs_temperature_plots(
         for params, history in order_parameters_history.items():
             temperatures.append(float(params.temperature))
 
-            if data_type == 'fluctuations_from_history':
-                data_type = 'fluctuations'
+            if data_type == 'fluctuations':
                 source_data = history.calculate_decorrelated_fluctuations(
                     limit_history=recent_points,
                     decorrelation_interval=decorrelation_interval
                 )
             else:
                 # Use the calculate_decorrelated_averages method
-                decorrelated_op, decorrelated_fl = history.calculate_decorrelated_averages(
+                decorrelated_op = history.calculate_decorrelated_averages(
                     limit_history=recent_points,
                     decorrelation_interval=decorrelation_interval
                 )
 
                 # Choose the appropriate data source
-                source_data = decorrelated_op if data_type == 'order_parameters' else decorrelated_fl
+                source_data = decorrelated_op
 
             for field in order_parameter_fields:
                 if field in source_data.dtype.fields.keys():  # type: ignore[union-attr]
@@ -185,8 +184,7 @@ def create_order_parameters_vs_temperature_plots(
 def create_fluctuations_vs_temperature_plots(
     order_parameters_history: Dict[DefiningParameters, OrderParametersHistory],
     recent_points: Optional[int] = 1000,
-    decorrelation_interval: int = 10,
-    fluctuations_from_history: bool = False
+    decorrelation_interval: int = 10
 ) -> Dict[str, Image.Image]:
     """
     Create all fluctuations vs temperature plots and return as PIL Images.
@@ -206,7 +204,7 @@ def create_fluctuations_vs_temperature_plots(
         Dictionary mapping field names to generated plot images
     """
     return create_field_data_vs_temperature_plots(
-        'fluctuations_from_history' if fluctuations_from_history else 'fluctuations', order_parameters_history, recent_points, decorrelation_interval
+        'fluctuations', order_parameters_history, recent_points, decorrelation_interval
     )
 
 
@@ -245,7 +243,7 @@ def create_energy_vs_temperature_plot(
                 temperatures.append(float(params.temperature))
 
                 # Use the calculate_decorrelated_averages method
-                decorrelated_op, _ = history.calculate_decorrelated_averages(
+                decorrelated_op = history.calculate_decorrelated_averages(
                     limit_history=recent_points,
                     decorrelation_interval=decorrelation_interval
                 )
@@ -270,7 +268,6 @@ def create_all_temperature_plots(
     order_parameters_history: Dict[DefiningParameters, OrderParametersHistory],
     recent_points: Optional[int] = 1000,
     decorrelation_interval: int = 10,
-    fluctuations_from_history: bool = False,
 ) -> Dict[str, Image.Image]:
     """
     Create all available temperature-based plots and return as PIL Images.
@@ -283,8 +280,6 @@ def create_all_temperature_plots(
         Number of recent points to average for each temperature (default: 1000)
     decorrelation_interval : int, optional
         Interval to skip points for decorrelation (default: 10)
-    fluctuations_from_history : bool, optional
-        If True, will include fluctuations calculated from history (default: False)
 
     Returns
     -------
@@ -309,7 +304,7 @@ def create_all_temperature_plots(
 
     # Fluctuation plots
     fluc_plots = create_fluctuations_vs_temperature_plots(
-        order_parameters_history, recent_points, decorrelation_interval, fluctuations_from_history
+        order_parameters_history, recent_points, decorrelation_interval
     )
     for field, plot in fluc_plots.items():
         all_plots[f'fluctuation_{field}'] = plot

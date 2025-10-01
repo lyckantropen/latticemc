@@ -27,61 +27,23 @@ def save_parameter_summary_tables(working_folder: str,
                                   ) -> None:
     """Save parameter summary tables as CSV and XZ files.
 
-    Creates comprehensive data tables for cross-parameter analysis of simulation results.
-    Saves both CSV (human-readable) and XZ (compressed pandas DataFrame) formats with
-    identical data content.
-
     Parameters
     ----------
     working_folder : str
-        Path to working directory where tables will be saved
+        Directory where tables will be saved
     order_parameters_history : Dict[DefiningParameters, OrderParametersHistory]
-        Dictionary mapping parameter sets to their order parameter histories
+        Parameter histories to save
     states : List[LatticeState]
-        List of lattice states to extract lattice dimensions from
+        States for extracting lattice dimensions
     recent_points : Optional[int], default None
-        Window size for decorrelated averages. If None, uses full history.
-        Typical values: 1000-5000 for periodic saves during simulation.
+        Window size for decorrelated averages (None uses full history)
     final : bool, default False
-        If True, saves as final files with '_final' suffix and creates
-        per-parameter raw time-series data in individual parameter folders.
+        If True, saves with '_final' suffix and creates per-parameter time series
 
     Files Created
     -------------
-    **Summary Tables** (data/ folder):
-    - parameter_summary[_final].csv: Cross-parameter comparison table
-    - parameter_summary[_final].xz: Same data as compressed DataFrame
-
-    Each row represents one parameter set with columns:
-    - Parameter values (temperature, tau, lambda, etc.)
-    - Lattice dimensions (lattice_X, lattice_Y, lattice_Z)
-    - avg_*: Decorrelated averages of order parameters
-    - fluct_*: Decorrelated averages of fluctuations
-    - hist_fluct_*: Fluctuations calculated from order parameter history
-
-    **Per-Parameter Time Series** (parameters/*/data/, final=True only):
-    - timeseries.csv/.xz: Raw time-series for individual parameter sets
-    - Columns: step, op_* (order parameters), fl_* (fluctuations)
-
-    Examples
-    --------
-    # Periodic save during simulation (windowed data)
-    save_parameter_summary_tables(
-        working_folder='simulation_output',
-        order_parameters_history=history_dict,
-        states=simulation_states,
-        recent_points=1000,
-        final=False
-    )
-
-    # Final save (full history + per-parameter files)
-    save_parameter_summary_tables(
-        working_folder='simulation_output',
-        order_parameters_history=history_dict,
-        states=simulation_states,
-        recent_points=None,
-        final=True
-    )
+    - data/parameter_summary[_final].csv/.xz: Cross-parameter comparison
+    - parameters/*/data/timeseries.csv/.xz: Individual time series (final only)
     """
     try:
         rows = []
@@ -134,21 +96,19 @@ def _create_parameter_row(parameters: DefiningParameters,
         lattice_dims = _get_lattice_dimensions(matching_state)
 
         # Calculate statistics
-        op_avg, fl_avg = history.calculate_decorrelated_averages(limit_history=recent_points)
-        hist_fluct = history.calculate_decorrelated_fluctuations(limit_history=recent_points)
+        op_avg = history.calculate_decorrelated_averages(limit_history=recent_points)
+        fl_values = history.calculate_decorrelated_fluctuations(limit_history=recent_points)
 
         # Build row dictionary
         row = {**parameters.to_dict(), **lattice_dims}
 
-        # Add all statistics
+        # Add averages
         for name in op_avg.dtype.names:  # type: ignore[union-attr]
-            row[f'avg_{name}'] = float(op_avg[name])
+            row[f'avg_{name}'] = float(op_avg[name].item())
 
-        for name in fl_avg.dtype.names:  # type: ignore[union-attr]
-            row[f'fluct_{name}'] = float(fl_avg[name])
-
-        for name in hist_fluct.dtype.names:  # type: ignore[union-attr]
-            row[f'hist_fluct_{name}'] = float(hist_fluct[name])
+        # Add fluctuations
+        for name in fl_values.dtype.names:  # type: ignore[union-attr]
+            row[f'fl_{name}'] = float(fl_values[name].item())
 
         return row
 
@@ -180,12 +140,12 @@ def _save_per_parameter_data(working_folder: str,
         data_dir = Path(working_folder) / "parameters" / param_folder / "data"
         data_dir.mkdir(parents=True, exist_ok=True)
 
-        # Combine order parameters and fluctuations into single file
+        # Fluctuations are not saved here because there's no time series for them
+        # Combine order parameters into single file
         combined_data = []
 
         # Get raw arrays
         op_array = history._get_order_parameters_array()
-        fl_array = history._get_fluctuations_array()
 
         row: Dict[str, float]
         # Add order parameters with 'op_' prefix
@@ -195,19 +155,6 @@ def _save_per_parameter_data(working_folder: str,
                 for name in op_array.dtype.names:  # type: ignore[union-attr]
                     row[f'op_{name}'] = float(item[name])
                 combined_data.append(row)
-
-        # Add fluctuations with 'fl_' prefix (matching by index if possible)
-        if len(fl_array) > 0:
-            for i, item in enumerate(fl_array):
-                # Extend existing row or create new one
-                if i < len(combined_data):
-                    row = combined_data[i]
-                else:
-                    row = {'step': i}
-                    combined_data.append(row)
-
-                for name in fl_array.dtype.names:  # type: ignore[union-attr]
-                    row[f'fl_{name}'] = float(item[name])
 
         if combined_data:
             df = pd.DataFrame(combined_data)

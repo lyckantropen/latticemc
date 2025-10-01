@@ -7,7 +7,6 @@ import numpy as np
 
 from .definitions import LatticeState, OrderParametersHistory, gathered_order_parameters, simulation_stats
 from .order_parameters import calculate_order_parameters
-from .statistical import fluctuation
 
 
 class Updater:
@@ -64,38 +63,6 @@ class OrderParametersCalculator(Updater):
             s = ','.join([f'{name}={value[name][0]:.5f}' for name in gathered_order_parameters.fields.keys()])
             return 'averg: ' + s
         return 'averg: no fields'
-
-
-class FluctuationsCalculator(Updater):
-    """Calculate fluctuations of order parameters over a sliding window."""
-
-    def __init__(self, order_parameters_history: OrderParametersHistory, *args, window: int = 1000, decorrelation_interval: int = 10, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.order_parameters_history = order_parameters_history
-        self.window = window
-        self.decorrelation_interval = decorrelation_interval
-
-    def update(self, state):
-        """Calculate fluctuations for recent order parameters."""
-        fluctuations = np.zeros(1, dtype=gathered_order_parameters)
-        if gathered_order_parameters.fields is not None:
-            # Get current order parameters array for fluctuation calculation
-            order_params_array = self.order_parameters_history._get_order_parameters_array()
-            window = min(self.window, order_params_array.size)
-            for name in gathered_order_parameters.fields.keys():
-                particles_size = state.lattice.particles.size if state.lattice.particles is not None else 1
-                fluct = particles_size * fluctuation(order_params_array[name][-window::self.decorrelation_interval])
-                fluctuations[name] = fluct
-
-        self.order_parameters_history.append_fluctuations(fluctuations)
-        return fluctuations
-
-    def format_value(self, value):
-        """Format fluctuations for display."""
-        if gathered_order_parameters.fields is not None:
-            s = ','.join([f'{name}={value[name][0]:.5f}' for name in gathered_order_parameters.fields.keys()])
-            return 'fluct: ' + s
-        return 'fluct: no fields'
 
 
 class RandomWiggleRateAdjustor(Updater):

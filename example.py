@@ -3,7 +3,7 @@ Basic example of a single-temperature lattice Monte Carlo simulation.
 
 This script demonstrates how to set up and run a Monte Carlo simulation
 on a 3D lattice of particles with quaternion orientations using the
-Simulation class. The simulation tracks order parameters and fluctuations over time.
+Simulation class. The simulation tracks order parameters over time.
 
 This example also shows how to use working folders for automatic saving
 and recovery of simulation state and results.
@@ -15,7 +15,6 @@ import pathlib
 from decimal import Decimal
 from typing import List, cast
 
-import joblib
 import numpy as np
 
 from latticemc.definitions import DefiningParameters, Lattice, LatticeState
@@ -90,7 +89,7 @@ model_params = DefiningParameters(
 initial_state = LatticeState(parameters=model_params, lattice=lattice)
 
 # Set up additional updaters for rate adjustments
-# These will be added to the standard order parameters and fluctuations calculators
+# These will be added to the standard order parameters calculators
 additional_updaters = [
     # Adjust wiggle rates to maintain good acceptance rates
     RandomWiggleRateAdjustor(scale=0.001, how_often=10, since_when=1),
@@ -100,7 +99,6 @@ additional_updaters = [
 # Create and configure the simulation with working folder
 # The Simulation class automatically handles:
 # - Order parameters calculation (every step)
-# - Fluctuations calculation (100-step sliding window)
 # - Main simulation loop with proper error handling
 # - Automatic progress bar (add progress_bar=None to disable)
 # - Automatic saving of simulation state and results when working_folder is provided
@@ -114,7 +112,6 @@ setup_file_logging(working_folder, simulation_id)
 simulation = Simulation(
     initial_state=initial_state,
     cycles=200,  # Number of Monte Carlo steps
-    fluctuations_window=100,  # Window size for fluctuations calculation
     per_state_updaters=cast(List[Updater], additional_updaters),
     working_folder=working_folder,  # Enable automatic saving
     save_interval=100,  # Save every 100 steps
@@ -141,10 +138,11 @@ if len(simulation.local_history.order_parameters) > 0:
     print(f"  q2: {simulation.local_history.order_parameters['q2'][-1]:.4f}")
     print(f"  p: {simulation.local_history.order_parameters['p'][-1]:.4f}")
 
-if len(simulation.local_history.fluctuations) > 0:
-    print("Final fluctuations:")
-    print(f"  q0 fluctuation: {simulation.local_history.fluctuations['q0'][-1]:.4f}")
-    print(f"  q2 fluctuation: {simulation.local_history.fluctuations['q2'][-1]:.4f}")
+# Calculate fluctuations from order parameter history
+fluctuations = simulation.local_history.calculate_decorrelated_fluctuations()
+print("Final fluctuations (calculated from history):")
+print(f"  q0 fluctuation: {fluctuations['q0']:.4f}")
+print(f"  q2 fluctuation: {fluctuations['q2']:.4f}")
 
 # Demonstrate loading saved data
 print("\n" + "=" * 50)
@@ -183,15 +181,17 @@ if order_params_path.exists():
         print(f"  Mean q0: {order_params['q0'].mean():.4f}")
         print(f"  Mean q2: {order_params['q2'].mean():.4f}")
 
-# Load simulation state
-simulation_state_path = working_folder / "states" / "simulation_state.joblib"
-if simulation_state_path.exists():
-    loaded_sim_state = joblib.load(simulation_state_path)
-    print(f"\nLoaded simulation state from: {simulation_state_path}")
-    print(f"Available keys: {list(loaded_sim_state.keys())}")
-    print(f"Cycles: {loaded_sim_state['cycles']}")
-    print(f"Current step: {loaded_sim_state['current_step']}")
-    print(f"Save interval: {loaded_sim_state['save_interval']}")
+# Load simulation state from JSON summary
+json_summary_path = working_folder / "summary.json"
+if json_summary_path.exists():
+    import json
+    with open(json_summary_path, 'r') as f:
+        summary = json.load(f)
+    print(f"\nLoaded simulation state from: {json_summary_path}")
+    print(f"Total cycles: {summary['total_cycles']}")
+    print(f"Current step: {summary['current_step']}")
+    print(f"Finished: {summary['finished']}")
+    print(f"Running time: {summary['running_time_seconds']:.2f} seconds")
 
 print(f"\nAll simulation data saved in: {working_folder.absolute()}")
 print("You can examine the files manually or load them in other scripts/notebooks.")

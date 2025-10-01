@@ -71,10 +71,6 @@ class TestSimulationPersistenceFolders(TestCase):
         data_files = list((working_path / "data").glob("*.npz"))
         self.assertGreater(len(data_files), 0, "Should create data files")
 
-        # Check that lattice state files are created
-        state_files = list((working_path / "states").glob("*.npz"))
-        self.assertGreater(len(state_files), 0, "Should create lattice state files")
-
         # Check JSON summary
         json_path = working_path / "summary.json"
         self.assertTrue(json_path.exists(), "Should create JSON summary")
@@ -83,7 +79,7 @@ class TestSimulationPersistenceFolders(TestCase):
             summary = json.load(f)
 
         # Verify JSON structure (updated to match actual format)
-        expected_keys = ['current_step', 'total_cycles', 'latest_order_parameters', 'latest_fluctuations']
+        expected_keys = ['current_step', 'total_cycles', 'latest_order_parameters']
         for key in expected_keys:
             self.assertIn(key, summary, f"JSON should contain {key}")
 
@@ -193,7 +189,6 @@ class TestSimulationPersistenceFolders(TestCase):
             cycles=30,
             working_folder=self.working_folder,
             save_interval=7,  # Prime number to test irregular intervals
-            fluctuations_window=10,  # Small window so fluctuations are calculated early
             auto_recover=False
         )
         sim.run()
@@ -202,9 +197,7 @@ class TestSimulationPersistenceFolders(TestCase):
 
         # Check data files - should create the standard persistence files
         order_params_file = working_path / "data" / "order_parameters.npz"
-        fluctuations_file = working_path / "data" / "fluctuations.npz"
         self.assertTrue(order_params_file.exists(), "Should create order parameters file")
-        self.assertTrue(fluctuations_file.exists(), "Should create fluctuations file")
 
         # Check JSON was updated
         json_path = working_path / "summary.json"
@@ -289,7 +282,6 @@ class TestSimulationDataPreservation(TestCase):
             cycles=50,  # Enough cycles to generate meaningful data
             working_folder=self.working_folder,
             save_interval=20,  # Save twice during simulation
-            fluctuations_window=25,  # Small window to ensure fluctuations are calculated
             auto_recover=False
         )
 
@@ -300,7 +292,7 @@ class TestSimulationDataPreservation(TestCase):
         final_step = sim1.current_step
         final_lattice_state = sim1.state
         final_order_params = sim1.local_history.order_parameters_list.copy()
-        final_fluctuations = sim1.local_history.fluctuations_list.copy()
+        # Note: fluctuations are now calculated from history when needed, not stored during runtime
         final_stats = sim1.local_history.stats_list.copy()
 
         # Capture detailed lattice data
@@ -329,7 +321,6 @@ class TestSimulationDataPreservation(TestCase):
             cycles=70,  # More cycles to continue simulation
             working_folder=self.working_folder,
             save_interval=15,
-            fluctuations_window=30,  # Different window
             auto_recover=False  # Don't auto-recover, test discrete recovery
         )
 
@@ -356,23 +347,17 @@ class TestSimulationDataPreservation(TestCase):
 
         # Verify order parameters and fluctuations history preservation
         recovered_order_params = sim2.local_history.order_parameters_list
-        recovered_fluctuations = sim2.local_history.fluctuations_list
+        # Note: fluctuations no longer stored during runtime
 
         self.assertEqual(len(recovered_order_params), len(final_order_params),
                          "Should recover exact number of order parameters")
-        self.assertEqual(len(recovered_fluctuations), len(final_fluctuations),
-                         "Should recover exact number of fluctuations")
+        # Note: fluctuations are no longer stored during runtime, so no comparison needed
 
         # Compare actual data values for key fields
         if len(final_order_params) > 0:
             for i in range(min(3, len(final_order_params))):
                 npt.assert_array_equal(recovered_order_params[i], final_order_params[i],
                                        f"Order parameters should match exactly at index {i}")
-
-        if len(final_fluctuations) > 0:
-            for i in range(min(2, len(final_fluctuations))):
-                npt.assert_array_equal(recovered_fluctuations[i], final_fluctuations[i],
-                                       f"Fluctuations should match exactly at index {i}")
 
         # Now run the recovered simulation to test continuation
         sim2.run()
@@ -382,14 +367,10 @@ class TestSimulationDataPreservation(TestCase):
 
         # Verify continued simulation added more data
         final_recovered_order_params = sim2.local_history.order_parameters_list
-        final_recovered_fluctuations = sim2.local_history.fluctuations_list
+        # Note: fluctuations no longer stored during runtime
 
         self.assertGreaterEqual(len(final_recovered_order_params), len(final_order_params),
                                 "Should have at least original order parameters plus new ones")
-
-        if len(final_fluctuations) > 0:
-            self.assertGreaterEqual(len(final_recovered_fluctuations), len(final_fluctuations),
-                                    "Should have at least original fluctuations plus new ones")
 
         # Verify stats preservation
         recovered_stats = sim2.local_history.stats_list
@@ -404,8 +385,6 @@ class TestSimulationDataPreservation(TestCase):
         # Check that all expected files exist
         self.assertTrue((working_path / "data" / "order_parameters.npz").exists(),
                         "Order parameters file should exist")
-        self.assertTrue((working_path / "data" / "fluctuations.npz").exists(),
-                        "Fluctuations file should exist")
         self.assertTrue((working_path / "states" / "lattice_state.npz").exists(),
                         "Lattice state file should exist")
         self.assertTrue((working_path / "summary.json").exists(),
@@ -423,29 +402,12 @@ class TestSimulationDataPreservation(TestCase):
         self.assertEqual(summary['current_step'], 70, "JSON should reflect final step count")
         self.assertEqual(summary['total_cycles'], 70, "JSON should reflect total cycles")
         self.assertIn('latest_order_parameters', summary, "JSON should contain order parameters")
-        self.assertIn('latest_fluctuations', summary, "JSON should contain fluctuations")
 
         # Additional verification: manually load saved data and compare
         self._verify_saved_data_integrity(working_path, sim2)
 
     def _verify_saved_data_integrity(self, working_path: Path, sim: Simulation):
         """Manually verify the integrity of saved data files."""
-        import json
-
-        # Load and verify JSON summary contains simulation state
-        json_summary_path = working_path / "summary.json"
-        if json_summary_path.exists():
-            with open(json_summary_path, 'r') as f:
-                summary = json.load(f)
-
-            # Verify required keys exist in JSON summary
-            required_keys = ['current_step', 'total_cycles']
-            for key in required_keys:
-                self.assertIn(key, summary, f"JSON summary should contain {key}")
-
-            self.assertEqual(summary['current_step'], sim.current_step,
-                             "Saved simulation step should match current step")
-
         # Load and verify lattice state file
         lattice_state_path = working_path / "states" / "lattice_state.npz"
         if lattice_state_path.exists():

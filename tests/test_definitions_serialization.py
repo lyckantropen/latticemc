@@ -56,11 +56,8 @@ class TestDefinitionsJSONSerialization(TestCase):
         ], dtype=gathered_order_parameters)
         self.history.order_parameters = sample_ops
 
-        sample_flucts = np.array([
-            (0.1, 0.05, 0.02, 0.03, 0.04, 0.06),
-            (0.12, 0.06, 0.03, 0.04, 0.05, 0.07)
-        ], dtype=gathered_order_parameters)
-        self.history.fluctuations = sample_flucts
+        # Note: fluctuations are no longer stored in history during runtime
+        # They are now calculated from order parameters history when needed
 
     def test_defining_parameters_to_dict(self):
         """Test DefiningParameters.to_dict() method."""
@@ -229,8 +226,8 @@ class TestDefinitionsJSONSerialization(TestCase):
         """Test OrderParametersHistory.to_dict() method."""
         result = self.history.to_dict()
 
-        # Check structure
-        expected_keys = {'latest_order_parameters', 'latest_fluctuations', 'data_counts'}
+        # Check structure - fluctuations are no longer included in runtime output
+        expected_keys = {'latest_order_parameters', 'data_counts'}
         self.assertEqual(set(result.keys()), expected_keys)
 
         # Check latest order parameters (should be last entry)
@@ -240,15 +237,9 @@ class TestDefinitionsJSONSerialization(TestCase):
         self.assertAlmostEqual(latest_op['energy'], 1.4, places=5)
         self.assertAlmostEqual(latest_op['q0'], 0.78, places=5)
 
-        # Check latest fluctuations
-        latest_fluct = result['latest_fluctuations']
-        self.assertEqual(set(latest_fluct.keys()), expected_op_keys)
-        self.assertAlmostEqual(latest_fluct['energy'], 0.12, places=5)
-
         # Check data counts
         data_counts = result['data_counts']
         self.assertEqual(data_counts['order_parameters'], 3)
-        self.assertEqual(data_counts['fluctuations'], 2)
 
     def test_json_serialization_complete_workflow(self):
         """Test that all JSON methods produce valid JSON."""
@@ -313,10 +304,7 @@ class TestDefinitionsNPZSerialization(TestCase):
         ], dtype=gathered_order_parameters)
         self.history.order_parameters = sample_ops
 
-        sample_flucts = np.array([
-            (0.2, 0.1, 0.05, 0.06, 0.07, 0.08)
-        ], dtype=gathered_order_parameters)
-        self.history.fluctuations = sample_flucts
+        # Note: fluctuations are no longer stored as property - they're calculated from order parameter history
 
     def test_defining_parameters_to_npz_dict(self):
         """Test DefiningParameters.to_npz_dict() method."""
@@ -415,10 +403,11 @@ class TestDefinitionsNPZSerialization(TestCase):
         op_path = "/test_op.npz"
         fluct_path = "/test_fluct.npz"
 
-        # Test saving
+        # Test saving with fluctuations calculated from history
         self.history.save_to_npz(
             order_parameters_path=op_path,
-            fluctuations_path=fluct_path
+            fluctuations_path=fluct_path,
+            fluctuations_from_history=True  # Required to actually save fluctuations
         )
 
         # Check files were created
@@ -427,37 +416,35 @@ class TestDefinitionsNPZSerialization(TestCase):
 
         # Test loading
         new_history = OrderParametersHistory(self.lattice.size)
-        new_history.load_from_npz(
-            order_parameters_path=op_path,
-            fluctuations_path=fluct_path
-        )
+        new_history.load_from_npz(order_parameters_path=op_path)
 
         # Check data was restored correctly
         self.assertEqual(len(new_history.order_parameters), 2)
-        self.assertEqual(len(new_history.fluctuations), 1)
+        # Note: fluctuations are no longer stored as a property, they're calculated from history
 
         # Check specific values
         np.testing.assert_array_equal(new_history.order_parameters, self.history.order_parameters)
-        np.testing.assert_array_equal(new_history.fluctuations, self.history.fluctuations)
-
         self.assertAlmostEqual(new_history.order_parameters[0]['energy'], 2.1, places=5)
-        self.assertAlmostEqual(new_history.fluctuations[0]['energy'], 0.2, places=5)
+
+        # Test that fluctuations can be calculated from the loaded history
+        calculated_fluctuations = new_history.calculate_decorrelated_fluctuations()
+        self.assertGreater(len(calculated_fluctuations), 0, "Should be able to calculate fluctuations from history")
 
     def test_order_parameters_history_npz_partial_operations(self):
         """Test OrderParametersHistory NPZ operations with partial data."""
         op_path = "/test_op_only.npz"
 
         # Test saving only order parameters
-        self.history.save_to_npz(order_parameters_path=op_path, fluctuations_path=None)
+        self.history.save_to_npz(order_parameters_path=op_path)
         self.assertTrue(Path(op_path).exists())
 
         # Load into new history
         new_history = OrderParametersHistory(self.lattice.size)
-        new_history.load_from_npz(order_parameters_path=op_path, fluctuations_path=None)
+        new_history.load_from_npz(order_parameters_path=op_path)
 
         # Check that only order parameters were loaded
         self.assertEqual(len(new_history.order_parameters), 2)
-        self.assertEqual(len(new_history.fluctuations), 0)  # Should remain empty
+        # Note: fluctuations no longer stored as property - they're calculated from order parameters when needed
 
     def test_npz_roundtrip_complete_workflow(self):
         """Test complete NPZ workflow with all data structures."""

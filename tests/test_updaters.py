@@ -6,8 +6,7 @@ import numpy as np
 import pytest
 
 from latticemc.definitions import LatticeState, OrderParametersHistory
-from latticemc.updaters import (AcceptanceRateWiggleRateAdjustor, CallbackUpdater, FluctuationsCalculator, OrderParametersCalculator, RandomWiggleRateAdjustor,
-                                Updater)
+from latticemc.updaters import AcceptanceRateWiggleRateAdjustor, CallbackUpdater, OrderParametersCalculator, RandomWiggleRateAdjustor, Updater
 
 
 class ConcreteUpdater(Updater):
@@ -329,26 +328,6 @@ class TestOrderParametersCalculator:
         history = Mock(spec=OrderParametersHistory)
         calculator = OrderParametersCalculator(history, how_often=1, since_when=0)
         assert calculator.order_parameters_history is history
-
-
-class TestFluctuationsCalculator:
-    """Test the FluctuationsCalculator class."""
-
-    def test_init(self):
-        history = Mock(spec=OrderParametersHistory)
-        calculator = FluctuationsCalculator(
-            history, how_often=1, since_when=0,
-            window=500, decorrelation_interval=5
-        )
-        assert calculator.order_parameters_history is history
-        assert calculator.window == 500
-        assert calculator.decorrelation_interval == 5
-
-    def test_init_default_parameters(self):
-        history = Mock(spec=OrderParametersHistory)
-        calculator = FluctuationsCalculator(history, how_often=1, since_when=0)
-        assert calculator.window == 1000
-        assert calculator.decorrelation_interval == 10
 
 
 if __name__ == "__main__":

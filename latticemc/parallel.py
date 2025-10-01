@@ -69,118 +69,44 @@ class ProgressBarMode(Enum):
 
 class SimulationRunner(threading.Thread):
     """
-    Thread that manages multiple simulation processes with parallel tempering support.
+    Manages multiple parallel simulation processes with optional parallel tempering.
 
-    SimulationRunner coordinates multiple SimulationProcess instances, handles inter-process
-    communication, manages parallel tempering exchanges, and provides comprehensive data
-    logging and visualization through TensorBoard integration.
+    Coordinates simulation processes, handles inter-process communication, manages
+    replica exchanges, and provides TensorBoard logging.
 
     Parameters
     ----------
     initial_states : List[LatticeState]
-        List of initial lattice states for each simulation process. Each state should
-        have different parameters (typically temperature) for parallel tempering.
+        Initial states for each process (different temperatures for parallel tempering)
     order_parameters_history : Dict[DefiningParameters, OrderParametersHistory]
-        Dictionary to collect and store results from each parameter set. Organized
-        by DefiningParameters for efficient analysis across temperature exchanges.
+        Storage for results organized by parameter set
     cycles : int
-        Number of Monte Carlo steps each process should perform.
+        Number of Monte Carlo steps per process
     parallel_tempering_interval : Optional[int], default=None
-        Interval (in steps) for parallel tempering exchanges. If None, parallel
-        tempering is disabled and processes run independently.
+        Exchange interval in steps (None disables parallel tempering)
     progress_bar_mode : ProgressBarMode, default=ProgressBarMode.CONSOLE
-        Progress bar display mode: NONE (no bars), CONSOLE (terminal), or
-        NOTEBOOK (Jupyter notebook compatible).
+        Progress display mode: NONE, CONSOLE, or NOTEBOOK
     working_folder : Optional[str], default=None
-        Path to folder for saving simulation states, data, and logs. Creates
-        organized structure with process folders, parameter folders, and plots.
-        If None, no file saving is performed.
+        Directory for saving data and logs (None disables saving)
     save_interval : int, default=200
-        How often to save simulation state and data (in steps). Controls both
-        process-level and parameter-level saving frequency.
+        Save frequency in steps
     auto_recover : bool, default=False
-        Whether to attempt recovery from previously saved state when working_folder
-        is specified and saved states are found. Note that
-        `order_parameters_history` must contain the parameter keys for recovery.
+        Resume from saved state if available
     plot_save_interval_sec : float, default=60.0
-        How often to generate and save temperature plots (in seconds of real time).
-        Plots are saved to both TensorBoard and working folder if available.
+        Frequency for generating temperature plots (seconds)
     plot_recent_points : int, default=1000
-        Number of recent data points to use for temperature plot generation.
-        Larger values provide more statistical accuracy but slower plotting.
+        Number of recent points for plotting
     **kwargs
-        Additional keyword arguments passed to SimulationProcess instances.
-        See SimulationProcess documentation for supported options.
+        Additional arguments passed to SimulationProcess
 
-    Folder Structure Created
-    ------------------------
-    When working_folder is specified, creates the following structure:
-
+    File Structure
+    --------------
     working_folder/
-    ├── tensorboard/                    # TensorBoard logs for real-time visualization
-    ├── plots/                          # Temperature-dependent plots
-    │   ├── energy_vs_temperature.png
-    │   └── order_parameter_*_vs_temperature.png
-    ├── data/                           # Cross-parameter analysis tables
-    │   ├── parameter_summary.csv       # Periodic summary (decorrelated averages)
-    │   ├── parameter_summary.xz        # Same data, pickled DataFrame
-    │   ├── parameter_summary_final.csv # Final summary (full history)
-    │   └── parameter_summary_final.xz  # Same data, pickled DataFrame
-    ├── logs/                           # Simulation runner logs
-    ├── process_000/, process_001/, ... # Individual process data and states
-    │   ├── data/
-    │   │   ├── order_parameters.npz
-    │   │   └── fluctuations.npz
-    │   ├── states/
-    │   │   └── latest_state.npz
-    │   ├── logs/
-    │   │   └── simulation.log
-    │   └── summary.json
-    └── parameters/                    # Data organized by actual parameter values
-        ├── T0.30_lam0.35_tau1.00/
-        ├── T0.35_lam0.35_tau1.00/
-        └── T1.65_lam0.35_tau1.00/
-            ├── data/
-            │   ├── order_parameters.npz
-            │   ├── fluctuations.npz
-            │   ├── timeseries.csv       # Raw time-series data (final only)
-            │   └── timeseries.xz        # Same data, pickled DataFrame
-            ├── states/
-            │   └── latest_state.npz
-            └── summary.json
-
-    Notes
-    -----
-    - For parallel tempering, provide states with different temperatures
-    - Process communication uses multiprocessing.Queue for thread safety
-    - TensorBoard logging is automatically enabled when working_folder is provided
-    - Temperature plots are generated periodically and saved permanently
-    - All data is organized both by process ID and by actual parameter values
-    - Recovery markers prevent data corruption during simulation restarts
-
-    Data Tables
-    -----------
-    The simulation creates comprehensive CSV and XZ tables for analysis:
-
-    **Parameter Summary Tables** (data/ folder):
-    - `parameter_summary.csv/.xz`: Periodic saves with decorrelated averages over recent points
-    - `parameter_summary_final.csv/.xz`: Final save with decorrelated averages over full history
-    - Each row represents one parameter set (temperature, tau, lambda, etc.)
-    - Columns include: parameter values, lattice dimensions, avg_*, fluct_*, hist_fluct_*
-    - avg_* columns: decorrelated averages of order parameters (energy, q0, q2, w, p, d322)
-    - fluct_* columns: decorrelated averages of fluctuations measured during simulation
-    - hist_fluct_* columns: fluctuations calculated directly from order parameter history
-
-    **Per-Parameter Time Series** (parameters/*/data/ folders):
-    - `timeseries.csv/.xz`: Complete raw time-series data for each parameter set
-    - Columns include: step, op_* (order parameters), fl_* (fluctuations)
-    - Created only during final save for detailed analysis of individual runs
-    - Combines order parameters and fluctuations in single file with step alignment
-
-    **File Formats**:
-    - CSV files: Human-readable, compatible with Excel and analysis tools
-    - XZ files: Compressed pandas DataFrames for efficient Python analysis
-    - Both formats contain identical data; XZ recommended for large datasets
+    ├── tensorboard/        # TensorBoard logs
+    ├── data/              # Cross-parameter CSV tables
+    ├── parameters/        # Data by parameter values (use for analysis)
+    ├── process_XXX/       # Individual process data (use for debugging)
+    └── plots/             # Temperature plots
     """
 
     def __init__(self,
@@ -256,7 +182,6 @@ class SimulationRunner(threading.Thread):
         # message handlers mapping
         self.message_handlers = {
             MessageType.OrderParameters: self._handle_order_parameters_message,
-            MessageType.Fluctuations: self._handle_fluctuations_message,
             MessageType.State: self._handle_state_message,
             MessageType.ParallelTemperingSignUp: self._handle_parallel_tempering_signup_message,
             MessageType.Error: self._handle_error_message,
@@ -306,7 +231,6 @@ class SimulationRunner(threading.Thread):
         """Attempt to recover simulation states from working folder if enabled."""
         logger.info(f"Attempting to recover simulation states from working folder {self.working_folder}")
         self._load_order_parameters()
-        self._load_fluctuations()
         self._load_states()
 
     def _update_progress_bars(self) -> None:
@@ -345,25 +269,6 @@ class SimulationRunner(threading.Thread):
 
         # Save order parameters
         self._save_order_parameters(parameters)
-        self._save_parameter_summary(parameters)
-
-    def _handle_fluctuations_message(self, index: int, msg: Any, pt_ready: List[Tuple[int, ParallelTemperingParameters]]) -> None:
-        """Handle Fluctuations message."""
-        parameters, fl = msg
-
-        # Create entry if it doesn't exist (for recovery cases)
-        if parameters not in self.order_parameters_history:
-            from .definitions import OrderParametersHistory
-            matching_state: LatticeState = [state for state in self.states if state.parameters == parameters][0]
-            self.order_parameters_history[parameters] = OrderParametersHistory(matching_state.lattice.size)
-            logger.debug(f"Created new order_parameters_history entry for recovered parameters: {parameters}")
-
-        self.order_parameters_history[parameters].append_fluctuations(fl)
-        # Log fluctuations immediately when received
-        self._log_fluctuations_to_tensorboard(parameters, fl)
-
-        # Save fluctuations
-        self._save_fluctuations(parameters)
         self._save_parameter_summary(parameters)
 
     def _handle_state_message(self, index: int, msg: Any, pt_ready: List[Tuple[int, ParallelTemperingParameters]]) -> None:
@@ -511,7 +416,7 @@ class SimulationRunner(threading.Thread):
 
     def _post_loop_save_final_temperature_plots(self) -> None:
         """Save final temperature plots."""
-        self._save_temperature_plots(recent_points=None, fluctuations_from_history=True)
+        self._save_temperature_plots(recent_points=None)
 
     def _post_loop_save_final_data(self) -> None:
         """Save final data for all parameter sets when simulation completes."""
@@ -524,7 +429,7 @@ class SimulationRunner(threading.Thread):
         for parameters in self.order_parameters_history.keys():
             try:
                 self._save_order_parameters(parameters)
-                self._save_fluctuations(parameters, fluctuations_from_history=True)
+                self._save_fluctuations(parameters)
                 self._save_state(parameters)
                 self._save_parameter_summary(parameters)
                 logger.info(f"Saved final data for parameters {parameters.get_folder_name()}")
@@ -890,21 +795,6 @@ class SimulationRunner(threading.Thread):
         except Exception as e:
             logger.error(f"Error logging order parameters to TensorBoard: {e}")
 
-    def _log_fluctuations_to_tensorboard(self, parameters: DefiningParameters, fl: np.ndarray) -> None:
-        """Log fluctuations immediately when received."""
-        try:
-            # Use the length of fluctuations history as step
-            step = len(self.order_parameters_history[parameters].fluctuations_list) if parameters in self.order_parameters_history else None
-
-            # Log individual fluctuation values for this temperature
-            for field in self._tb_logger.order_parameter_fields:
-                if len(fl) > 0:
-                    value = float(fl[-1][field])  # Get the most recent value
-                    self._tb_logger.log_temperature_scalar_auto('fluctuations', field, parameters, value, step)
-
-        except Exception as e:
-            logger.error(f"Error logging fluctuations to TensorBoard: {e}")
-
     def _log_state_to_tensorboard(self, state: LatticeState) -> None:
         """Log state information (energy, acceptance rates) immediately when received."""
         try:
@@ -939,7 +829,7 @@ class SimulationRunner(threading.Thread):
         except Exception as e:
             logger.error(f"Error logging temperatures after exchange to TensorBoard: {e}")
 
-    def _save_temperature_plots(self, recent_points: Optional[int] = 1000, fluctuations_from_history: bool = False, start_time: Optional[float] = None) -> None:
+    def _save_temperature_plots(self, recent_points: Optional[int] = 1000, start_time: Optional[float] = None) -> None:
         """
         Save temperature-based plots for energy, order parameters, and fluctuations.
 
@@ -964,8 +854,7 @@ class SimulationRunner(threading.Thread):
             # Create all temperature plots using plot_utils (uses entire history)
             all_plots = create_all_temperature_plots(
                 self.order_parameters_history,
-                recent_points=recent_points,
-                fluctuations_from_history=fluctuations_from_history)
+                recent_points=recent_points)
 
             # Log plots to TensorBoard
             for plot_name, img in all_plots.items():
@@ -1064,7 +953,7 @@ class SimulationRunner(threading.Thread):
         except Exception as e:
             logger.error(f"Error loading existing order parameters: {e}")
 
-    def _save_fluctuations(self, parameters: DefiningParameters, fluctuations_from_history: bool = False) -> None:
+    def _save_fluctuations(self, parameters: DefiningParameters) -> None:
         """Save fluctuations for a specific parameter set."""
         if self.working_folder is None:
             return
@@ -1077,32 +966,14 @@ class SimulationRunner(threading.Thread):
             # Ensure directory exists
             paths['fluctuations'].parent.mkdir(parents=True, exist_ok=True)
 
-            # Get fluctuations history for this parameter set
+            # Get order parameters history for this parameter set
             history = self.order_parameters_history[parameters]
-            if history and len(history.fluctuations_list) > 0:
-                history.save_to_npz(fluctuations_path=str(paths['fluctuations']), fluctuations_from_history=fluctuations_from_history)
+            if history and len(history.order_parameters_list) > 0:
+                history.save_to_npz(fluctuations_path=str(paths['fluctuations']), fluctuations_from_history=True)
                 logger.debug(f"Saved fluctuations for {parameters} to {paths['fluctuations']}")
 
         except Exception as e:
             logger.error(f"Error saving fluctuations for {parameters}: {e}")
-
-    def _load_fluctuations(self) -> None:
-        """Load existing fluctuations from working folder if available."""
-        if self.working_folder is None:
-            return
-
-        try:
-            for parameters in self.order_parameters_history.keys():
-                paths = self._get_parameter_save_paths(parameters)
-                if not paths:
-                    continue
-
-                if paths['fluctuations'].is_file():
-                    history = self.order_parameters_history[parameters]
-                    history.load_from_npz(fluctuations_path=str(paths['fluctuations']))
-                    logger.info(f"Loaded existing fluctuations for {parameters} from {paths['fluctuations']}")
-        except Exception as e:
-            logger.error(f"Error loading existing fluctuations: {e}")
 
     def _save_state(self, parameters: DefiningParameters) -> None:
         """Save the latest state for a specific parameter set."""
@@ -1188,7 +1059,7 @@ class SimulationRunner(threading.Thread):
 
             # Create summary data similar to Simulation class structure
             summary_data = {
-                'current_step': int(matching_state.iterations),
+                'iterations': int(matching_state.iterations),
                 'total_cycles': self.cycles,
                 'parameters': parameters.to_dict()
             }
@@ -1201,10 +1072,8 @@ class SimulationRunner(threading.Thread):
                 # Default empty data when no history available
                 summary_data.update({
                     'latest_order_parameters': {},
-                    'latest_fluctuations': {},
                     'data_counts': {
-                        'order_parameters': 0,
-                        'fluctuations': 0
+                        'order_parameters': 0
                     }
                 })
 

@@ -9,36 +9,36 @@ from typing import Any, Dict, List, Optional
 import numpy as np
 
 from .definitions import LatticeState, OrderParametersHistory
-from .updaters import FluctuationsCalculator, OrderParametersCalculator, Updater
+from .updaters import OrderParametersCalculator, Updater
 
 logger = logging.getLogger(__name__)
 
 
 class Simulation:
     """
-    Base class for lattice Monte Carlo simulations.
+    Lattice Monte Carlo simulation with automatic persistence.
 
-    Handles the core simulation loop, order parameter tracking, and standard updaters.
-    Does not include multiprocessing or communication-specific functionality.
-
-    Args
-    ----
-        initial_state: The initial lattice state for the simulation
-        cycles: Number of Monte Carlo steps to perform
-        fluctuations_window: Window size for fluctuation calculations
-        per_state_updaters: Additional updaters to run each step
-        progress_bar: Optional tqdm progress bar object. If None, creates automatic
-                     console progress bar. Use tqdm.notebook.tqdm for Jupyter notebooks.
-        working_folder: Optional path to folder for saving simulation state and logs.
-                       If None, no saving is performed.
-        save_interval: How often to save simulation state and JSON summary (in steps). Default 200.
-        auto_recover: Whether to attempt recovery from saved state. Default False.
+    Parameters
+    ----------
+    initial_state : LatticeState
+        Initial lattice configuration
+    cycles : int
+        Number of Monte Carlo steps to run
+    per_state_updaters : List[Updater], optional
+        Additional updaters executed each step
+    progress_bar : Any, optional
+        Progress bar object (default: console tqdm)
+    working_folder : str, optional
+        Directory for saving state and results
+    save_interval : int, default=200
+        Save frequency in steps
+    auto_recover : bool, default=False
+        Resume from saved state if available
     """
 
     def __init__(self,
                  initial_state: LatticeState,
                  cycles: int,
-                 fluctuations_window: int = 1000,
                  per_state_updaters: Optional[List[Updater]] = None,
                  progress_bar: Optional[Any] = None,
                  working_folder: Optional[str] = None,
@@ -46,7 +46,6 @@ class Simulation:
                  auto_recover: bool = False) -> None:
         self.state = initial_state
         self.cycles = cycles
-        self.fluctuations_window = fluctuations_window
         self.per_state_updaters = per_state_updaters or []
         self.progress_bar = progress_bar
         self.start_time = time.time()
@@ -67,14 +66,7 @@ class Simulation:
             self.recover()
 
     def recover(self) -> bool:
-        """
-        Attempt to recover simulation state from working folder.
-
-        Returns
-        -------
-        bool
-            True if recovery was successful, False otherwise.
-        """
+        """Attempt to recover simulation from saved state."""
         if self.working_folder is None:
             logger.debug("No working folder specified, cannot recover")
             return False
@@ -100,21 +92,16 @@ class Simulation:
             if paths['lattice_state'].exists():
                 lattice_data = np.load(paths['lattice_state'])
                 self.state = LatticeState.from_npz_dict(lattice_data)
-                self.current_step = int(lattice_data['current_step'])
-
                 logger.debug("Recovered lattice state, parameters, and recomputed lattice averages")
 
-            # Load order parameters, fluctuations, and stats using OrderParametersHistory method
+            # Load order parameters and stats using OrderParametersHistory method
             self.local_history.load_from_npz(
                 order_parameters_path=str(paths['order_parameters']) if paths['order_parameters'].exists() else None,
-                fluctuations_path=str(paths['fluctuations']) if paths['fluctuations'].exists() else None,
                 stats_path=str(paths['stats']) if paths['stats'].exists() else None
             )
 
             if len(self.local_history.order_parameters_list) > 0:
                 logger.debug(f"Recovered {len(self.local_history.order_parameters_list)} order parameter entries")
-            if len(self.local_history.fluctuations_list) > 0:
-                logger.debug(f"Recovered {len(self.local_history.fluctuations_list)} fluctuation entries")
             if len(self.local_history.stats_list) > 0:
                 logger.debug(f"Recovered {len(self.local_history.stats_list)} stats entries")
 
@@ -130,7 +117,7 @@ class Simulation:
             return False
 
     def _save_complete_state(self) -> None:
-        """Save complete simulation state for recovery, including JSON summary."""
+        """Save complete simulation state for recovery."""
         if self.working_folder is None:
             return
 
@@ -146,15 +133,16 @@ class Simulation:
             lattice_save_data['current_step'] = self.current_step
             np.savez_compressed(paths['lattice_state'], **lattice_save_data)
 
-            # Save order parameters, fluctuations, and stats
+            # Save order parameters and stats, generate fluctuations from history for final save
+            final = self.current_step >= self.cycles
             self.local_history.save_to_npz(
                 order_parameters_path=str(paths['order_parameters']) if len(self.local_history.order_parameters_list) > 0 else None,
-                fluctuations_path=str(paths['fluctuations']) if len(self.local_history.fluctuations_list) > 0 else None,
-                stats_path=str(paths['stats']) if len(self.local_history.stats_list) > 0 else None
+                fluctuations_path=None,  # No longer saving fluctuations to disk
+                stats_path=str(paths['stats']) if len(self.local_history.stats_list) > 0 else None,
+                fluctuations_from_history=final  # Generate fluctuations from history on final save
             )
 
             # Save JSON summary
-            final = self.current_step >= self.cycles
             summary: Dict[str, Any] = {
                 'current_step': self.current_step,
                 'total_cycles': self.cycles,
@@ -165,11 +153,10 @@ class Simulation:
 
             if final:
                 # note that if this was a parallel tempering simulation, these will be based on truncated history
-                op, fl = self.local_history.calculate_decorrelated_averages()
+                op = self.local_history.calculate_decorrelated_averages()
                 fl_from_hist = self.local_history.calculate_decorrelated_fluctuations()
-                summary['final_order_parameters'] = {name: float(op[name]) for name in op.dtype.fields.keys()}  # type: ignore[union-attr]
-                summary['final_fluctuations'] = {name: float(fl[name]) for name in fl.dtype.fields.keys()}  # type: ignore[union-attr]
-                summary['final_fluctuations_from_history'] = {name: float(fl_from_hist[name])
+                summary['final_order_parameters'] = {name: float(op[name].item()) for name in op.dtype.fields.keys()}  # type: ignore[union-attr]
+                summary['final_fluctuations_from_history'] = {name: float(fl_from_hist[name].item())
                                                               for name in fl_from_hist.dtype.fields.keys()}  # type: ignore[union-attr]
 
             # Add order parameters history data
@@ -194,7 +181,6 @@ class Simulation:
             logger.info(f"Resuming from step {self.current_step}")
         logger.info(f"Parameters: T={self.state.parameters.temperature}, "
                     f"λ={self.state.parameters.lam}, τ={self.state.parameters.tau}")
-        logger.debug(f"Fluctuations window: {self.fluctuations_window}")
         logger.debug(f"Additional updaters: {len(self.per_state_updaters)}")
 
         # Set up core updaters
@@ -262,18 +248,9 @@ class Simulation:
         )
         logger.debug("Added OrderParametersCalculator")
 
-        fluctuations_calculator = FluctuationsCalculator(
-            self.local_history,
-            window=self.fluctuations_window,
-            how_often=self.fluctuations_window // 10,  # potentially O(n^2) so less often
-            since_when=self.fluctuations_window // 10
-        )
-        logger.debug(f"Added FluctuationsCalculator with window={self.fluctuations_window}")
-
         # Combine with user-provided updaters
         updaters = [
             order_parameters_calculator,
-            fluctuations_calculator,
             *self.per_state_updaters,
         ]
 
@@ -368,7 +345,6 @@ class Simulation:
 
         return {
             'order_parameters': self.working_folder / "data" / "order_parameters.npz",
-            'fluctuations': self.working_folder / "data" / "fluctuations.npz",
             'stats': self.working_folder / "data" / "stats.npz",
             'lattice_state': self.working_folder / "states" / "lattice_state.npz",
             'json_summary': self.working_folder / "summary.json",

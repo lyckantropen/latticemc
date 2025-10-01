@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "latticemc"
-version = "0.1.10"
+version = "0.1.11"
 authors = [
     {name = "Karol Trojanowski", email = "trojanowski.ifuj@gmail.com"},
 ]

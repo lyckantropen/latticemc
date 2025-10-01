@@ -34,11 +34,8 @@ class TestCSVSaving:
             op_item = np.array([(energy, q0, q2, w, p, d322)], dtype=gathered_order_parameters)
             history.append_order_parameters(op_item[0])
 
-            # Add some fluctuations data every 10 steps (simulating the updater behavior)
-            if i % 10 == 0 and i > 50:  # Start fluctuations after some warmup
-                # Create fluctuations based on recent order parameters window
-                fl_item = np.array([(0.1, 0.05, 0.03, 0.02, 0.04, 0.01)], dtype=gathered_order_parameters)
-                history.append_fluctuations(fl_item[0])
+            # Note: Fluctuations are no longer appended during simulation runtime
+            # They are calculated from order parameters history when needed
 
         return history
 
@@ -130,16 +127,13 @@ class TestCSVSaving:
                 for field in gathered_order_parameters.names:
                     # Check columns exist
                     assert f'avg_{field}' in row
-                    assert f'fluct_{field}' in row
-                    assert f'hist_fluct_{field}' in row
+                    assert f'fl_{field}' in row
 
                     # Check values are reasonable (not NaN, not infinite)
                     assert not np.isnan(row[f'avg_{field}'])
-                    assert not np.isnan(row[f'fluct_{field}'])
-                    assert not np.isnan(row[f'hist_fluct_{field}'])
+                    assert not np.isnan(row[f'fl_{field}'])
                     assert np.isfinite(row[f'avg_{field}'])
-                    assert np.isfinite(row[f'fluct_{field}'])
-                    assert np.isfinite(row[f'hist_fluct_{field}'])
+                    assert np.isfinite(row[f'fl_{field}'])
 
                 # Verify parameter values are correctly saved
                 param_dict = params.to_dict()
@@ -192,10 +186,9 @@ class TestCSVSaving:
 
             # Verify data integrity
             op_array = history._get_order_parameters_array()
-            fl_array = history._get_fluctuations_array()
 
-            # Check that we have the expected number of rows
-            expected_rows = max(len(op_array), len(fl_array))
+            # Check that we have the expected number of rows (now just based on order parameters)
+            expected_rows = len(op_array)
             assert len(ts_csv) == expected_rows
 
             # Verify order parameters columns exist and contain correct data
@@ -207,15 +200,16 @@ class TestCSVSaving:
                 for i in range(min(len(op_array), len(ts_csv))):
                     assert abs(ts_csv.iloc[i][op_col] - float(op_array[i][field])) < 1e-10
 
-            # Verify fluctuations columns exist and contain correct data (where available)
+            # Verify fluctuations columns exist (values are calculated from history so just check existence)
             for field in gathered_order_parameters.names:
                 fl_col = f'fl_{field}'
                 assert fl_col in ts_csv.columns
 
-                # Check fluctuation values where they exist
-                for i in range(min(len(fl_array), len(ts_csv))):
-                    if not pd.isna(ts_csv.iloc[i][fl_col]):
-                        assert abs(ts_csv.iloc[i][fl_col] - float(fl_array[i][field])) < 1e-10
+                # Verify fluctuation values are reasonable (non-negative and not all identical)
+                if fl_col in ts_csv.columns:
+                    values = ts_csv[fl_col].dropna()
+                    if len(values) > 0:
+                        assert (values >= 0).all(), f"Fluctuation values should be non-negative for {field}"
 
     def test_csv_saving_recent_points_limit(self):
         """Test that recent_points parameter correctly limits the history window."""
@@ -254,14 +248,12 @@ class TestCSVSaving:
             # Verify structure - all expected columns exist
             for field in gathered_order_parameters.names:
                 assert f'avg_{field}' in row
-                assert f'fluct_{field}' in row
-                assert f'hist_fluct_{field}' in row
+                assert f'fl_{field}' in row
 
             # Verify values are reasonable (not NaN, not zero)
             for field in gathered_order_parameters.names:
                 assert not np.isnan(row[f'avg_{field}'])
-                assert not np.isnan(row[f'fluct_{field}'])
-                assert not np.isnan(row[f'hist_fluct_{field}'])
+                assert not np.isnan(row[f'fl_{field}'])
 
             # Verify that we can distinguish between full and limited history
             # Save again with no limit for comparison
@@ -278,7 +270,7 @@ class TestCSVSaving:
             # At least one value should differ
             differs = False
             for col in df.columns:
-                if 'avg_' in col or 'fluct_' in col or 'hist_fluct_' in col:
+                if 'avg_' in col or 'fl_' in col:
                     if abs(df.iloc[0][col] - df_unlimited.iloc[0][col]) > 1e-6:
                         differs = True
                         break

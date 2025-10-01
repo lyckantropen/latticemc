@@ -148,7 +148,6 @@ class TestParallelTempering:
             order_parameters_history=order_parameters_history,
             cycles=50,  # Short run
             report_order_parameters_every=25,
-            report_fluctuations_every=25,
             report_state_every=25,
             parallel_tempering_interval=10  # Attempt exchange every 10 iterations
         )
@@ -225,7 +224,6 @@ class TestParallelTempering:
             order_parameters_history=order_parameters_history,
             cycles=20,  # Very short simulation (reduced for disabled Numba)
             report_order_parameters_every=10,
-            report_fluctuations_every=10,
             report_state_every=10,
             parallel_tempering_interval=5  # Frequent exchanges to test barrier edge cases
         )
@@ -286,7 +284,6 @@ class TestParallelTempering:
         # Set up controlled intervals for predictable data generation
         cycles = 50  # Reduced to match successful single-process test
         report_order_parameters_every = 10  # Will broadcast every 10 cycles
-        report_fluctuations_every = 20      # Will broadcast every 20 cycles
         report_state_every = 25             # Will broadcast every 25 cycles
 
         runner = SimulationRunner(
@@ -294,10 +291,8 @@ class TestParallelTempering:
             order_parameters_history=order_parameters_history,
             cycles=cycles,
             report_order_parameters_every=report_order_parameters_every,
-            report_fluctuations_every=report_fluctuations_every,
             report_state_every=report_state_every,
             parallel_tempering_interval=50,  # Less frequent exchanges to focus on data accumulation
-            fluctuations_window=25  # Smaller window like the working single-process test
         )
 
         # Start simulation
@@ -311,12 +306,6 @@ class TestParallelTempering:
         # Order parameters: collected every cycle, broadcast periodically, accumulated in runner
         expected_order_params = cycles  # Exact count - one per cycle
 
-        # Fluctuations: calculated every (fluctuations_window // 10) = 2 cycles starting from cycle (fluctuations_window // 10) = 2
-        # So for 50 cycles: 2, 4, 6, 8, ..., 50 = 25 calculations
-        # But broadcasts happen starting from cycle 25 and every 20 cycles, so broadcasts at: 25, 45
-        # The exact count depends on timing and what gets captured in each broadcast
-        expected_fluctuations = 20  # Empirically determined from actual behavior
-
         # Verify data accumulation for each temperature/process
         for i, state in enumerate(states):
             params = state.parameters
@@ -328,13 +317,6 @@ class TestParallelTempering:
             assert total_order_params == expected_order_params, \
                 f"Process {i}: Expected exactly {expected_order_params} order parameters, " \
                 f"got {total_order_params}"
-
-            # Test accumulated fluctuations in runner's history - exact count (no more duplication bug)
-            total_fluctuations = len(history.fluctuations_list)
-
-            assert total_fluctuations == expected_fluctuations, \
-                f"Process {i}: Expected exactly {expected_fluctuations} fluctuations, " \
-                f"got {total_fluctuations}"
 
             # Test that order parameters data has consistent structure and valid values
             if len(history.order_parameters_list) > 0:
@@ -353,23 +335,6 @@ class TestParallelTempering:
                         assert np.isfinite(value), \
                             f"Process {i}: Non-finite value in order parameter {field_name} at index {j}: {value}"
 
-            # Test that fluctuations data has consistent structure and valid values
-            if len(history.fluctuations_list) > 0:
-                # Check that all entries are structured arrays with the expected fields
-                first_entry = history.fluctuations_list[0]
-                expected_fields = {'energy', 'q0', 'q2', 'w', 'p', 'd322'}
-                actual_fields = set(first_entry.dtype.names) if first_entry.dtype.names else set()
-                assert expected_fields.issubset(actual_fields), \
-                    f"Process {i}: Missing expected fields in fluctuations. " \
-                    f"Expected {expected_fields}, got {actual_fields}"
-
-                # Verify no NaN or infinite values in fluctuations
-                for j, entry in enumerate(history.fluctuations_list):
-                    for field_name in expected_fields:
-                        value = entry[field_name]
-                        assert np.isfinite(value), \
-                            f"Process {i}: Non-finite value in fluctuation {field_name} at index {j}: {value}"
-
             # Test data integrity - verify that broadcasting didn't create gaps or duplicates
             # Check that we have reasonable data density (not too sparse)
             if total_order_params > 10:
@@ -382,7 +347,6 @@ class TestParallelTempering:
 
         print(f"Data accumulation test passed: {len(states)} processes correctly accumulated "
               f"order parameters (avg {sum(len(h.order_parameters_list) for h in order_parameters_history.values()) // len(states)}) "
-              f"and fluctuations (avg {sum(len(h.fluctuations_list) for h in order_parameters_history.values()) // len(states)}) "
               f"over {cycles} cycles")
 
     def test_exact_broadcast_logic(self):
@@ -399,18 +363,14 @@ class TestParallelTempering:
         # Use precise intervals that divide evenly into cycles
         cycles = 50
         report_order_parameters_every = 5   # Broadcast at cycles 5, 10, 15, 20, 25, 30, 35, 40, 45, 50
-        report_fluctuations_every = 10      # Broadcast at cycles 25, 35, 45 (since_when=25)
-        fluctuations_window = 25            # FluctuationsCalculator starts at cycle 2, runs every 2 cycles
 
         runner = SimulationRunner(
             initial_states=states,
             order_parameters_history=order_parameters_history,
             cycles=cycles,
             report_order_parameters_every=report_order_parameters_every,
-            report_fluctuations_every=report_fluctuations_every,
             report_state_every=100,  # No state broadcasts during test
             parallel_tempering_interval=100,  # No exchanges during test
-            fluctuations_window=fluctuations_window
         )
 
         runner.start()
@@ -427,17 +387,8 @@ class TestParallelTempering:
         assert total_order_params == cycles, \
             f"Expected exactly {cycles} order parameters accumulated in runner, got {total_order_params}"
 
-        # Fluctuations: Should have data from fluctuation calculations without duplication
-        # FluctuationsCalculator runs every (fluctuations_window // 10) = 2 cycles starting from cycle (fluctuations_window // 10) = 2
-        # So it runs at cycles: 2, 4, 6, 8, ..., 50 = 25 calculations total
-        # With send-and-clear logic, no duplicates should exist
-        expected_fluctuation_calculations = cycles // 2  # Every 2 cycles starting from cycle 2
-        total_fluctuations = len(history.fluctuations_list)
-
-        # With the fixed send-and-clear logic, we should have exact counts
-        assert total_fluctuations == expected_fluctuation_calculations, \
-            f"Expected exactly {expected_fluctuation_calculations} fluctuations (send-and-clear fixed duplication), " \
-            f"got {total_fluctuations}"
+        # Note: Fluctuations are no longer calculated during runtime - they are calculated
+        # from order parameters history when needed at the end of simulation
 
         # Verify no duplicate data exists in accumulated results
         if len(history.order_parameters_list) > 1:
@@ -448,8 +399,7 @@ class TestParallelTempering:
             assert unique_energies > len(energies) // 4, \
                 f"Too many identical energy values suggest duplication: {unique_energies} unique out of {len(energies)}"
 
-        print(f"SUCCESS: Send-and-clear logic working correctly - {total_order_params} order parameters, "
-              f"{total_fluctuations} fluctuations (no duplication bugs).")
+        print(f"SUCCESS: Send-and-clear logic working correctly - {total_order_params} order parameters collected.")
 
     def test_simulation_runner_recovery(self):
         """Test SimulationRunner recovery functionality.
@@ -475,10 +425,8 @@ class TestParallelTempering:
                 order_parameters_history=order_parameters_history,
                 cycles=cycles,
                 report_order_parameters_every=5,
-                report_fluctuations_every=10,
                 report_state_every=15,
                 parallel_tempering_interval=100,  # No exchanges during test
-                fluctuations_window=20,
                 save_interval=save_interval,
                 working_folder=temp_dir
             )
@@ -490,7 +438,6 @@ class TestParallelTempering:
             # Force final save of all data
             for state in states:
                 runner1._save_order_parameters(state.parameters)
-                runner1._save_fluctuations(state.parameters)
                 runner1._save_state(state.parameters)
 
             # Capture data from first run for comparison
@@ -498,8 +445,7 @@ class TestParallelTempering:
             for params in order_parameters_history.keys():
                 history = order_parameters_history[params]
                 original_data[params] = {
-                    'order_parameters_count': len(history.order_parameters_list) if history.order_parameters_list else 0,
-                    'fluctuations_count': len(history.fluctuations_list) if history.fluctuations_list else 0
+                    'order_parameters_count': len(history.order_parameters_list) if history.order_parameters_list else 0
                 }
 
             # Also capture the actual state data for comparison
@@ -517,9 +463,6 @@ class TestParallelTempering:
                 paths = runner1._get_parameter_save_paths(params)
                 assert paths['order_parameters'].exists(), f"Order parameters file not saved for {params}"
                 assert paths['state'].exists(), f"State file not saved for {params}"
-                # Fluctuations might not exist if no fluctuations were calculated
-                if original_data[params]['fluctuations_count'] > 0:
-                    assert paths['fluctuations'].exists(), f"Fluctuations file not saved for {params}"
 
             # Create new simulation with recovery for same working folder
             # Start with empty history to test recovery
@@ -531,10 +474,8 @@ class TestParallelTempering:
                 order_parameters_history=new_order_parameters_history,
                 cycles=cycles,
                 report_order_parameters_every=5,
-                report_fluctuations_every=10,
                 report_state_every=15,
                 parallel_tempering_interval=100,
-                fluctuations_window=20,
                 save_interval=save_interval,
                 working_folder=temp_dir
             )
@@ -552,23 +493,12 @@ class TestParallelTempering:
                 assert recovered_op_count == original['order_parameters_count'], \
                     f"Order parameters count mismatch for {params}: expected {original['order_parameters_count']}, got {recovered_op_count}"
 
-                # Check fluctuations count
-                recovered_fluc_count = len(recovered_history.fluctuations_list) if recovered_history.fluctuations_list else 0
-                assert recovered_fluc_count == original['fluctuations_count'], \
-                    f"Fluctuations count mismatch for {params}: expected {original['fluctuations_count']}, got {recovered_fluc_count}"
-
                 # Check order parameters data content (basic structure verification)
                 if recovered_op_count > 0:
                     # Just check that the entries are numpy structured arrays with expected fields
                     sample_entry = recovered_history.order_parameters_list[0]
                     assert hasattr(sample_entry, 'dtype'), f"Order parameter entry is not a numpy array for {params}"
                     assert 'energy' in sample_entry.dtype.names, f"Missing energy field in order parameters for {params}"
-
-                # Check fluctuations data content (basic structure verification)
-                if recovered_fluc_count > 0:
-                    # Just check that the entries are numpy structured arrays
-                    sample_fluc = recovered_history.fluctuations_list[0]
-                    assert hasattr(sample_fluc, 'dtype'), f"Fluctuation entry is not a numpy array for {params}"
 
             # Verify state recovery
             for i, (original_state_data, recovered_state) in enumerate(zip(original_states.values(), new_states)):
@@ -594,7 +524,6 @@ class TestParallelTempering:
 
             print("SUCCESS: SimulationRunner recovery test passed - all data types recovered accurately")
             print(f"  - Order parameters: {sum(original_data[p]['order_parameters_count'] for p in original_data)} entries recovered")
-            print(f"  - Fluctuations: {sum(original_data[p]['fluctuations_count'] for p in original_data)} entries recovered")
             print(f"  - States: {len(new_states)} state objects recovered with correct parameters and data")
 
         finally:

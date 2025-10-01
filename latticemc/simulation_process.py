@@ -24,12 +24,11 @@ class MessageType(Enum):
     """
 
     OrderParameters = 1
-    Fluctuations = 2
-    State = 3
-    ParallelTemperingSignUp = 4
-    Error = 5
-    Finished = 6
-    Ping = 7
+    State = 2
+    ParallelTemperingSignUp = 3
+    Error = 4
+    Finished = 5
+    Ping = 6
 
 
 ParallelTemperingParameters = namedtuple('ParallelTemperingParameters', ['parameters', 'energy', 'pipe'])
@@ -49,7 +48,6 @@ class SimulationProcess(Simulation, mp.Process):
                  initial_state: LatticeState,
                  *args,
                  report_order_parameters_every: int = 1000,
-                 report_fluctuations_every: int = 1000,
                  report_state_every: int = 1000,
                  parallel_tempering_interval: Optional[int] = None,
                  exchange_barrier=None,
@@ -66,7 +64,6 @@ class SimulationProcess(Simulation, mp.Process):
         self.index = index
         self.queue = queue
         self.report_order_parameters_every = report_order_parameters_every
-        self.report_fluctuations_every = report_fluctuations_every
         self.report_state_every = report_state_every
         self.parallel_tempering_interval = parallel_tempering_interval
         self.exchange_barrier = exchange_barrier
@@ -101,11 +98,6 @@ class SimulationProcess(Simulation, mp.Process):
             how_often=self.report_order_parameters_every,
             since_when=self.report_order_parameters_every
         )
-        fluctuations_broadcaster = CallbackUpdater(
-            callback=lambda _: self._broadcast_fluctuations(),
-            how_often=self.report_fluctuations_every,
-            since_when=self.fluctuations_window
-        )
         state_broadcaster = CallbackUpdater(
             callback=lambda _: self._broadcast_state(),
             how_often=self.report_state_every,
@@ -119,7 +111,6 @@ class SimulationProcess(Simulation, mp.Process):
 
         updaters += [
             order_parameters_broadcaster,
-            fluctuations_broadcaster,
             state_broadcaster,
             ping_updater
         ]
@@ -191,20 +182,13 @@ class SimulationProcess(Simulation, mp.Process):
                         (self.state.parameters, params)))
         self.local_history.order_parameters_list.clear()  # Clear after broadcasting
 
-    def _broadcast_fluctuations(self) -> None:
-        """Publish recent fluctuation values from history to the governing thread."""
-        fluctuations = self.local_history.fluctuations
-        self.queue.put((MessageType.Fluctuations, self.index,
-                        (self.state.parameters, fluctuations)))
-        self.local_history.fluctuations_list.clear()  # Clear after broadcasting
-
     def _broadcast_state(self):
         """Publish the current Lattice State to the governing thread."""
         self.queue.put((MessageType.State, self.index, self.state))
 
     def _send_ping(self) -> None:
         """Send a ping message to indicate the process is alive and healthy."""
-        self.queue.put((MessageType.Ping, self.index, self.current_step))
+        self.queue.put((MessageType.Ping, self.index, self.state.iterations))
 
     def _parallel_tempering(self) -> None:
         """Announce readiness for parallel tempering and perform exchange if selected."""
@@ -246,7 +230,6 @@ class SimulationProcess(Simulation, mp.Process):
             logger.debug(f'SimulationProcess[{self.index}, {self.state.parameters}]: Performing parallel tempering exchange to {parameters}')
             # broadcast what we can
             self._broadcast_order_parameters()
-            self._broadcast_fluctuations()
             self._broadcast_state()
 
             # parameter change
@@ -263,9 +246,9 @@ class SimulationProcess(Simulation, mp.Process):
         """
         Override recover to broadcast recovered data to the governing process.
 
-        After successful recovery, immediately broadcasts the recovered order parameters
-        and fluctuations to the SimulationRunner so it can populate its history dictionary
-        with the correct parameter keys.
+        After successful recovery, immediately broadcasts the recovered order
+        parameters to the SimulationRunner so it can populate its history
+        dictionary with the correct parameter keys.
         """
         # Call parent's recover method
         success = super().recover()
@@ -284,16 +267,6 @@ class SimulationProcess(Simulation, mp.Process):
                     logger.debug(f"SimulationProcess[{self.index}]: Sent recovered order parameters")
                 except Exception as e:
                     logger.warning(f"SimulationProcess[{self.index}]: Failed to broadcast recovered order parameters: {e}")
-
-            # Broadcast recovered fluctuations if available
-            if len(self.local_history.fluctuations_list) > 0:
-                try:
-                    # Send all recovered fluctuations
-                    fl_data = self.local_history.fluctuations  # All recovered
-                    self.queue.put((MessageType.Fluctuations, self.index, (self.state.parameters, fl_data)))
-                    logger.debug(f"SimulationProcess[{self.index}]: Sent recovered fluctuations")
-                except Exception as e:
-                    logger.warning(f"SimulationProcess[{self.index}]: Failed to broadcast recovered fluctuations: {e}")
 
             # Also broadcast the current state so runner knows the actual parameters
             try:

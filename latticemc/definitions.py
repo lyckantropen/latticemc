@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass, field
 from decimal import Decimal
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional
 
 import numpy as np
 from jaxtyping import Shaped
@@ -268,25 +268,21 @@ class LatticeState:
 
 @dataclass
 class OrderParametersHistory:
-    """Values of order parameters, fluctuation of order parameters and simulation statistics as a function of time."""
+    """Values of order parameters and simulation statistics as a function of time."""
 
     n_particles: int
     _order_parameters: Shaped[np.ndarray, "..."] = field(default_factory=lambda: np.empty(0, dtype=gathered_order_parameters))
-    _fluctuations: Shaped[np.ndarray, "..."] = field(default_factory=lambda: np.empty(0, dtype=gathered_order_parameters))
     _stats: Shaped[np.ndarray, "..."] = field(default_factory=lambda: np.empty(0, dtype=simulation_stats))
 
     # Lists for efficient appending
     order_parameters_list: List[Shaped[np.ndarray, "1"]] = field(default_factory=list, init=False)
-    fluctuations_list: List[Shaped[np.ndarray, "1"]] = field(default_factory=list, init=False)
     stats_list: List[Shaped[np.ndarray, "1"]] = field(default_factory=list, init=False)
 
     def clear(self) -> None:
         """Clear all stored data."""
         self._order_parameters = np.empty(0, dtype=gathered_order_parameters)
-        self._fluctuations = np.empty(0, dtype=gathered_order_parameters)
         self._stats = np.empty(0, dtype=simulation_stats)
         self.order_parameters_list.clear()
-        self.fluctuations_list.clear()
         self.stats_list.clear()
 
     # CAUTION: slow
@@ -313,28 +309,6 @@ class OrderParametersHistory:
 
     # CAUTION: slow
     @property
-    def fluctuations(self) -> np.ndarray:
-        """Get fluctuations array, automatically syncing from list if needed."""
-        if len(self.fluctuations_list) > 0:
-            self._fluctuations = np.array(self.fluctuations_list, dtype=gathered_order_parameters)
-        else:
-            self._fluctuations = np.empty(0, dtype=gathered_order_parameters)
-        return self._fluctuations
-
-    @fluctuations.setter
-    def fluctuations(self, value: np.ndarray) -> None:
-        """Set fluctuations array and sync to list."""
-        self._fluctuations = value
-        # Clear and repopulate the list to maintain consistency
-        self.fluctuations_list.clear()
-        if len(value) > 0:
-            for item in value:
-                self.fluctuations_list.append(item)
-        else:
-            self.fluctuations_list.clear()
-
-    # CAUTION: slow
-    @property
     def stats(self) -> np.ndarray:
         """Get stats array, automatically syncing from list if needed."""
         if len(self.stats_list) > 0:
@@ -356,13 +330,11 @@ class OrderParametersHistory:
             self.stats_list.clear()
 
     def to_dict(self) -> dict:
-        """Convert latest order parameters and fluctuations to dictionary for JSON serialization."""
+        """Convert latest order parameters to dictionary for JSON serialization."""
         result = {
             'latest_order_parameters': {},
-            'latest_fluctuations': {},
             'data_counts': {
                 'order_parameters': len(self.order_parameters_list),
-                'fluctuations': len(self.fluctuations_list)
             }
         }
 
@@ -372,42 +344,34 @@ class OrderParametersHistory:
             for field_name in latest_op.dtype.fields.keys():  # type: ignore[union-attr]
                 result['latest_order_parameters'][field_name] = float(latest_op[field_name])  # type: ignore[assignment]
 
-        # Add latest fluctuations
-        if len(self.fluctuations_list) > 0:
-            latest_fluct = self.fluctuations_list[-1]
-            for field_name in latest_fluct.dtype.fields.keys():  # type: ignore[union-attr]
-                result['latest_fluctuations'][field_name] = float(latest_fluct[field_name])  # type: ignore[assignment]
-
         return result
 
     def save_to_npz(self, order_parameters_path: Optional[str] = None,
                     fluctuations_path: Optional[str] = None,
                     stats_path: Optional[str] = None,
                     fluctuations_from_history: bool = False) -> None:
-        """Save order parameters, fluctuations, and stats to NPZ files."""
+        """Save order parameters and stats to NPZ files. Generate fluctuations from history if requested."""
         import numpy as np
 
         # Get current arrays from lists or fallback to existing arrays
         order_params_array = self._get_order_parameters_array()
-        if fluctuations_from_history:
-            fluctuations_array = self.calculate_decorrelated_fluctuations()
-        else:
-            fluctuations_array = self._get_fluctuations_array()
         stats_array = self._get_stats_array()
 
         if order_parameters_path and len(order_params_array) > 0:
             np.savez_compressed(order_parameters_path, order_parameters=order_params_array)
 
-        if fluctuations_path and len(fluctuations_array) > 0:
-            np.savez_compressed(fluctuations_path, fluctuations=fluctuations_array)
+        # Generate fluctuations from order parameter history if requested
+        if fluctuations_path and fluctuations_from_history and len(order_params_array) > 0:
+            fluctuations_array = self.calculate_decorrelated_fluctuations()
+            if len(fluctuations_array) > 0:
+                np.savez_compressed(fluctuations_path, fluctuations=fluctuations_array)
 
         if stats_path and len(stats_array) > 0:
             np.savez_compressed(stats_path, stats=stats_array)
 
     def load_from_npz(self, order_parameters_path: Optional[str] = None,
-                      fluctuations_path: Optional[str] = None,
                       stats_path: Optional[str] = None) -> None:
-        """Load order parameters, fluctuations, and stats from NPZ files."""
+        """Load order parameters and stats from NPZ files."""
         import pathlib
 
         import numpy as np
@@ -417,12 +381,6 @@ class OrderParametersHistory:
             if op_path.exists():
                 op_data = np.load(op_path)
                 self.order_parameters = op_data['order_parameters']
-
-        if fluctuations_path:
-            fluc_path = pathlib.Path(fluctuations_path)
-            if fluc_path.exists():
-                fluc_data = np.load(fluc_path)
-                self.fluctuations = fluc_data['fluctuations']
 
         if stats_path:
             stats_path_obj = pathlib.Path(stats_path)
@@ -438,15 +396,6 @@ class OrderParametersHistory:
         else:  # 1D structured array with one or more elements
             for element in item:
                 self.order_parameters_list.append(element)
-
-    def append_fluctuations(self, item: np.ndarray) -> None:
-        """Efficiently append fluctuations using internal list."""
-        # Handle structured arrays properly - preserve structured array format for field access
-        if item.ndim == 0:  # scalar structured array
-            self.fluctuations_list.append(item)
-        else:  # 1D structured array with one or more elements
-            for element in item:
-                self.fluctuations_list.append(element)
 
     def append_stats(self, item: np.ndarray) -> None:
         """Efficiently append stats using internal list."""
@@ -464,13 +413,6 @@ class OrderParametersHistory:
         # Fall back to existing array if list is empty
         return self._order_parameters
 
-    def _get_fluctuations_array(self) -> np.ndarray:
-        """Convert internal list to numpy array when needed, falling back to existing array."""
-        if len(self.fluctuations_list) > 0:
-            return np.array(self.fluctuations_list, dtype=gathered_order_parameters)
-        # Fall back to existing array if list is empty
-        return self._fluctuations
-
     def _get_stats_array(self) -> np.ndarray:
         """Convert internal list to numpy array when needed, falling back to existing array."""
         if len(self.stats_list) > 0:
@@ -481,16 +423,14 @@ class OrderParametersHistory:
     def calculate_decorrelated_averages(self,
                                         limit_history: Optional[int] = None,
                                         decorrelation_interval: int = 10
-                                        ) -> Tuple[Shaped[np.ndarray, "1"], Shaped[np.ndarray, "1"]]:
+                                        ) -> Shaped[np.ndarray, "1"]:
         """Calculate decorrelated averages of order parameters."""
         assert gathered_order_parameters.fields is not None
 
         # Get current arrays from lists
         order_params_array = self._get_order_parameters_array()
-        fluctuations_array = self._get_fluctuations_array()
 
         decorrelated_avgs_op = np.zeros(1, dtype=gathered_order_parameters)
-        decorrelated_avgs_fl = np.zeros(1, dtype=gathered_order_parameters)
 
         # Process order parameters if available
         if len(order_params_array) > 0:
@@ -503,18 +443,7 @@ class OrderParametersHistory:
                     if name in decorrelated_op.dtype.fields.keys():  # type: ignore[union-attr]
                         decorrelated_avgs_op[name] = np.mean(decorrelated_op[name])
 
-        # Process fluctuations if available
-        if len(fluctuations_array) > 0:
-            window_fl = limit_history if limit_history is not None else len(fluctuations_array)
-            window_fl = min(window_fl, len(fluctuations_array))  # Don't exceed available data
-
-            if window_fl > 0:
-                # fluctuations are already decorrelated, just take the mean over the window
-                for name in gathered_order_parameters.fields.keys():  # type: ignore[union-attr]
-                    if name in fluctuations_array.dtype.fields.keys():  # type: ignore[union-attr]
-                        decorrelated_avgs_fl[name] = np.mean(fluctuations_array[name])
-
-        return decorrelated_avgs_op, decorrelated_avgs_fl
+        return decorrelated_avgs_op
 
     def calculate_decorrelated_fluctuations(self,
                                             limit_history: Optional[int] = None,
