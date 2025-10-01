@@ -1,14 +1,13 @@
 """Test suite for updaters module."""
 
-import numpy as np
-import pytest
 from unittest.mock import Mock
 
-from latticemc.updaters import (
-    Updater, OrderParametersCalculator, FluctuationsCalculator,
-    RandomWiggleRateAdjustor, AcceptanceRateWiggleRateAdjustor, CallbackUpdater
-)
+import numpy as np
+import pytest
+
 from latticemc.definitions import LatticeState, OrderParametersHistory
+from latticemc.updaters import (AcceptanceRateWiggleRateAdjustor, CallbackUpdater, FluctuationsCalculator, OrderParametersCalculator, RandomWiggleRateAdjustor,
+                                Updater)
 
 
 class ConcreteUpdater(Updater):

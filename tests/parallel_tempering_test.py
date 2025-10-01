@@ -1,4 +1,6 @@
 import multiprocessing as mp
+import shutil
+import tempfile
 from decimal import Decimal
 from typing import List
 
@@ -455,9 +457,6 @@ class TestParallelTempering:
         This test verifies that SimulationRunner can save simulation data and then
         recover it accurately, loading exactly the same data that was saved.
         """
-        import tempfile
-        import shutil
-
         # Create temporary working directory
         temp_dir = tempfile.mkdtemp()
 

@@ -9,7 +9,7 @@ from typing import List, Optional, cast
 
 import numpy as np
 
-from .definitions import LatticeState, gathered_order_parameters
+from .definitions import LatticeState
 from .simulation import Simulation
 from .updaters import CallbackUpdater, Updater
 

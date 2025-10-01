@@ -306,11 +306,6 @@ class TestSimulationDataPreservation(TestCase):
         # Capture detailed lattice data
         final_particles = final_lattice_state.lattice.particles.copy()
         final_properties = final_lattice_state.lattice.properties.copy()
-        final_lattice_averages = final_lattice_state.lattice_averages.copy()
-        final_wiggle_rate = final_lattice_state.wiggle_rate
-        final_iterations = final_lattice_state.iterations
-        final_accepted_x = final_lattice_state.accepted_x
-        final_accepted_p = final_lattice_state.accepted_p
 
         # Create recovery marker to simulate interrupted simulation
         working_path = Path(self.working_folder)
