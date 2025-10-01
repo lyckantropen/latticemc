@@ -6,7 +6,6 @@ import pathlib
 import time
 from typing import Any, Dict, List, Optional
 
-import joblib
 import numpy as np
 
 from .definitions import LatticeState, OrderParametersHistory
@@ -90,10 +89,11 @@ class Simulation:
         try:
             logger.info("Attempting to recover simulation state...")
 
-            # Load simulation state
-            if paths['simulation_state'].exists():
-                sim_state = joblib.load(paths['simulation_state'])
-                self.current_step = sim_state.get('current_step', 0)
+            # Load simulation state from JSON summary
+            if paths['json_summary'].exists():
+                with open(paths['json_summary'], 'r') as f:
+                    summary = json.load(f)
+                self.current_step = summary.get('current_step', 0)
                 logger.debug(f"Recovered simulation state: step {self.current_step}")
 
             # Load lattice state using LatticeState method
@@ -152,15 +152,6 @@ class Simulation:
                 fluctuations_path=str(paths['fluctuations']) if len(self.local_history.fluctuations_list) > 0 else None,
                 stats_path=str(paths['stats']) if len(self.local_history.stats_list) > 0 else None
             )
-
-            # Save simulation metadata
-            simulation_state = {
-                'cycles': self.cycles,
-                'fluctuations_window': self.fluctuations_window,
-                'save_interval': self.save_interval,
-                'current_step': self.current_step
-            }
-            joblib.dump(simulation_state, paths['simulation_state'])
 
             # Save JSON summary
             final = self.current_step >= self.cycles
@@ -380,7 +371,6 @@ class Simulation:
             'fluctuations': self.working_folder / "data" / "fluctuations.npz",
             'stats': self.working_folder / "data" / "stats.npz",
             'lattice_state': self.working_folder / "states" / "lattice_state.npz",
-            'simulation_state': self.working_folder / "states" / "simulation_state.joblib",
             'json_summary': self.working_folder / "summary.json",
             'recovery_marker': self.working_folder / "simulation_in_progress.marker"
         }

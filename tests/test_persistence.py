@@ -71,9 +71,9 @@ class TestSimulationPersistenceFolders(TestCase):
         data_files = list((working_path / "data").glob("*.npz"))
         self.assertGreater(len(data_files), 0, "Should create data files")
 
-        # Check that state files are created
-        state_files = list((working_path / "states").glob("*.joblib"))
-        self.assertGreater(len(state_files), 0, "Should create state files")
+        # Check that lattice state files are created
+        state_files = list((working_path / "states").glob("*.npz"))
+        self.assertGreater(len(state_files), 0, "Should create lattice state files")
 
         # Check JSON summary
         json_path = working_path / "summary.json"
@@ -408,8 +408,6 @@ class TestSimulationDataPreservation(TestCase):
                         "Fluctuations file should exist")
         self.assertTrue((working_path / "states" / "lattice_state.npz").exists(),
                         "Lattice state file should exist")
-        self.assertTrue((working_path / "states" / "simulation_state.joblib").exists(),
-                        "Simulation state file should exist")
         self.assertTrue((working_path / "summary.json").exists(),
                         "JSON summary should exist")
 
@@ -432,19 +430,20 @@ class TestSimulationDataPreservation(TestCase):
 
     def _verify_saved_data_integrity(self, working_path: Path, sim: Simulation):
         """Manually verify the integrity of saved data files."""
-        import joblib
+        import json
 
-        # Load and verify simulation state file
-        sim_state_path = working_path / "states" / "simulation_state.joblib"
-        if sim_state_path.exists():
-            loaded_sim_state = joblib.load(sim_state_path)
+        # Load and verify JSON summary contains simulation state
+        json_summary_path = working_path / "summary.json"
+        if json_summary_path.exists():
+            with open(json_summary_path, 'r') as f:
+                summary = json.load(f)
 
-            # Verify required keys exist
-            required_keys = ['cycles', 'fluctuations_window', 'current_step', 'save_interval']
+            # Verify required keys exist in JSON summary
+            required_keys = ['current_step', 'total_cycles']
             for key in required_keys:
-                self.assertIn(key, loaded_sim_state, f"Simulation state should contain {key}")
+                self.assertIn(key, summary, f"JSON summary should contain {key}")
 
-            self.assertEqual(loaded_sim_state['current_step'], sim.current_step,
+            self.assertEqual(summary['current_step'], sim.current_step,
                              "Saved simulation step should match current step")
 
         # Load and verify lattice state file
