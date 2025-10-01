@@ -136,7 +136,7 @@ def _save_per_parameter_data(working_folder: str,
     """Save raw time-series data for individual parameter set."""
     try:
         # Create parameter-specific folder
-        param_folder = parameters.get_folder_name()
+        param_folder = parameters.tag()
         data_dir = Path(working_folder) / "parameters" / param_folder / "data"
         data_dir.mkdir(parents=True, exist_ok=True)
 

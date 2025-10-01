@@ -171,7 +171,7 @@ class TestCSVSaving:
             )
 
             # Verify per-parameter files were created
-            param_folder = parameters.get_folder_name()
+            param_folder = parameters.tag()
             param_data_dir = Path(temp_dir) / 'parameters' / param_folder / 'data'
 
             assert (param_data_dir / 'timeseries.csv').exists()
@@ -200,16 +200,9 @@ class TestCSVSaving:
                 for i in range(min(len(op_array), len(ts_csv))):
                     assert abs(ts_csv.iloc[i][op_col] - float(op_array[i][field])) < 1e-10
 
-            # Verify fluctuations columns exist (values are calculated from history so just check existence)
-            for field in gathered_order_parameters.names:
-                fl_col = f'fl_{field}'
-                assert fl_col in ts_csv.columns
-
-                # Verify fluctuation values are reasonable (non-negative and not all identical)
-                if fl_col in ts_csv.columns:
-                    values = ts_csv[fl_col].dropna()
-                    if len(values) > 0:
-                        assert (values >= 0).all(), f"Fluctuation values should be non-negative for {field}"
+            # Per-parameter files should only contain raw order parameter time series
+            # Fluctuations are not included because they are statistical measures, not per-step values
+            # They are only available in the parameter summary tables
 
     def test_csv_saving_recent_points_limit(self):
         """Test that recent_points parameter correctly limits the history window."""

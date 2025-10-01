@@ -76,6 +76,9 @@ class SimulationProcess(Simulation, mp.Process):
         if self.auto_recover:
             self.recover()
 
+    def tag(self) -> str:
+        return f'SimulationProcess[index={self.index}, {self.state.parameters.tag()}, current_step{self.current_step}]'
+
     def _create_additional_updaters(self) -> List[Updater]:
         """Create additional updaters for queue communication and parallel tempering."""
         # Get any updaters from parent class
@@ -188,29 +191,29 @@ class SimulationProcess(Simulation, mp.Process):
 
     def _send_ping(self) -> None:
         """Send a ping message to indicate the process is alive and healthy."""
-        self.queue.put((MessageType.Ping, self.index, self.state.iterations))
+        self.queue.put((MessageType.Ping, self.index, self.current_step))
 
     def _parallel_tempering(self) -> None:
         """Announce readiness for parallel tempering and perform exchange if selected."""
         # Check if we're still supposed to be running - if not, skip parallel tempering
         if not self.running.value:
-            logger.debug(f'SimulationProcess[{self.index}, {self.state.parameters}]: Skipping parallel tempering - simulation ending')
+            logger.debug(f'{self.tag()}: Skipping parallel tempering - simulation ending')
             return
 
         # Wait at barrier to synchronize all replicas before attempting exchange
         if self.exchange_barrier is not None:
-            logger.debug(f'SimulationProcess[{self.index}, {self.state.parameters}]: Waiting at exchange barrier')
+            logger.debug(f'{self.tag()}: Waiting at exchange barrier')
             try:
                 self.exchange_barrier.wait(timeout=self.parallel_tempering_timeout)  # Add timeout to prevent indefinite hanging
             except Exception as e:
                 # Handle barrier broken, timeout, or other barrier-related exceptions
-                logger.debug(f'SimulationProcess[{self.index}, {self.state.parameters}]: Barrier exception ({e}), skipping parallel tempering')
+                logger.debug(f'{self.tag()}: Barrier exception ({e}), skipping parallel tempering')
                 return
 
         # energy needs to be scaled by number of particles (total system energy not per-particle)
         # the energy stored in order parameters is a lattice average
         if len(self.local_history.order_parameters_list) == 0:
-            logger.error(f'SimulationProcess[{self.index}, {self.state.parameters}]: No order parameters available for parallel tempering, skipping exchange')
+            logger.error(f'{self.tag()}: No order parameters available for parallel tempering, skipping exchange')
             return
 
         energy = self.local_history.order_parameters_list[-1]['energy'] * cast(np.ndarray, self.state.lattice.particles).size
@@ -220,14 +223,14 @@ class SimulationProcess(Simulation, mp.Process):
 
         # wait for decision in governing thread
         if not our.poll(self.parallel_tempering_timeout):
-            logger.warning(f'SimulationProcess[{self.index}, {self.state.parameters}]: No parallel tempering data to exchange')
+            logger.warning(f'{self.tag()}: No parallel tempering data to exchange')
             return
         parameters = our.recv()
 
-        logger.debug(f'SimulationProcess[{self.index}, {self.state.parameters}]: Received parameters for exchange: {parameters}')
+        logger.debug(f'{self.tag()}: Received parameters for exchange: {parameters}')
 
         if parameters != self.state.parameters:
-            logger.debug(f'SimulationProcess[{self.index}, {self.state.parameters}]: Performing parallel tempering exchange to {parameters}')
+            logger.debug(f'{self.tag()}: Performing parallel tempering exchange to {parameters}')
             # broadcast what we can
             self._broadcast_order_parameters()
             self._broadcast_state()
@@ -238,8 +241,7 @@ class SimulationProcess(Simulation, mp.Process):
                 self.temperature.value = float(parameters.temperature)
 
             # clear history to avoid mixing data from different temperatures
-            logger.debug(f'SimulationProcess[{self.index}, {self.state.parameters}]:'
-                         f' Clearing {len(self.local_history.order_parameters_list)} samples after parallel tempering exchange')
+            logger.debug(f'{self.tag()}: Clearing {len(self.local_history.order_parameters_list)} samples after parallel tempering exchange')
             self.local_history.clear()
 
     def recover(self) -> bool:
@@ -256,7 +258,7 @@ class SimulationProcess(Simulation, mp.Process):
         # TODO: this is wrong. the order parameters history contains data for different temperatures.
 
         if success and self.working_folder is not None:
-            logger.info(f"SimulationProcess[{self.index}]: Broadcasting recovered data to runner")
+            logger.info(f"{self.tag()}: Broadcasting recovered data to runner")
 
             # Broadcast recovered order parameters if available
             if len(self.local_history.order_parameters_list) > 0:
@@ -264,22 +266,22 @@ class SimulationProcess(Simulation, mp.Process):
                     # Send all recovered order parameters
                     op_data = self.local_history.order_parameters  # All recovered
                     self.queue.put((MessageType.OrderParameters, self.index, (self.state.parameters, op_data)))
-                    logger.debug(f"SimulationProcess[{self.index}]: Sent recovered order parameters")
+                    logger.debug(f"{self.tag()}: Sent recovered order parameters")
                 except Exception as e:
-                    logger.warning(f"SimulationProcess[{self.index}]: Failed to broadcast recovered order parameters: {e}")
+                    logger.warning(f"{self.tag()}: Failed to broadcast recovered order parameters: {e}")
 
             # Also broadcast the current state so runner knows the actual parameters
             try:
                 self.queue.put((MessageType.State, self.index, self.state))
-                logger.debug(f"SimulationProcess[{self.index}]: Sent recovered state")
+                logger.debug(f"{self.tag()}: Sent recovered state")
             except Exception as e:
-                logger.warning(f"SimulationProcess[{self.index}]: Failed to broadcast recovered state: {e}")
+                logger.warning(f"{self.tag()}: Failed to broadcast recovered state: {e}")
 
             # Send ping
             try:
                 self._send_ping()
-                logger.debug(f"SimulationProcess[{self.index}]: Sent ping after recovery")
+                logger.debug(f"{self.tag()}: Sent ping after recovery")
             except Exception as e:
-                logger.warning(f"SimulationProcess[{self.index}]: Failed to send ping after recovery: {e}")
+                logger.warning(f"{self.tag()}: Failed to send ping after recovery: {e}")
 
         return success

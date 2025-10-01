@@ -65,6 +65,9 @@ class Simulation:
         if self.auto_recover and not issubclass(type(self), Simulation):  # avoid in derived classes
             self.recover()
 
+    def tag(self) -> str:
+        return f'Simulation[{self.state.parameters.tag()}, current_step={self.current_step}]'
+
     def recover(self) -> bool:
         """Attempt to recover simulation from saved state."""
         if self.working_folder is None:
@@ -391,7 +394,7 @@ class CompleteStateSaver(Updater):
         """Save complete state for recovery."""
         try:
             self.simulation._save_complete_state()
-            return f"Complete state saved at step {state.iterations}"
+            return f"Complete state saved at step {self.simulation.current_step}"
         except Exception as e:
             logger.error(f"Failed to save complete state: {e}")
-            return f"Complete state save failed at step {state.iterations}"
+            return f"Complete state save failed at step {self.simulation.current_step}"

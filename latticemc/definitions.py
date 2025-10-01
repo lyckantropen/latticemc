@@ -158,10 +158,10 @@ class DefiningParameters:
         """Create DefiningParameters instance from NPZ dictionary data."""
         return cls.from_dict(data)
 
-    def get_folder_name(self) -> str:
-        """Generate a folder name from DefiningParameters.
+    def tag(self) -> str:
+        """Generate a tag name from DefiningParameters.
 
-        Creates a human-readable folder name like 'T0.90_lam0.30_tau1.00' from the parameters.
+        Creates a human-readable tag name like 'T0.90_lam0.30_tau1.00' from the parameters.
         """
         temp_str = f"T{float(self.temperature):.2f}"
         lam_str = f"lam{float(self.lam):.2f}"

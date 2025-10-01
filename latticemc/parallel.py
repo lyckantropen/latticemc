@@ -432,7 +432,7 @@ class SimulationRunner(threading.Thread):
                 self._save_fluctuations(parameters)
                 self._save_state(parameters)
                 self._save_parameter_summary(parameters)
-                logger.info(f"Saved final data for parameters {parameters.get_folder_name()}")
+                logger.info(f"Saved final data for parameters {parameters.tag()}")
             except Exception as e:
                 logger.error(f"Error saving final data for {parameters}: {e}")
 
@@ -903,7 +903,7 @@ class SimulationRunner(threading.Thread):
         if self.working_folder is None:
             return {}
 
-        param_folder_name = parameters.get_folder_name()
+        param_folder_name = parameters.tag()
         base_path = pathlib.Path(self.working_folder) / "parameters" / param_folder_name
 
         return {
