@@ -66,6 +66,7 @@ class Simulation:
             self.recover()
 
     def tag(self) -> str:
+        """Generate a tag for logging."""
         return f'Simulation[{self.state.parameters.tag()}, current_step={self.current_step}]'
 
     def recover(self) -> bool:

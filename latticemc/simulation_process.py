@@ -77,6 +77,7 @@ class SimulationProcess(Simulation, mp.Process):
             self.recover()
 
     def tag(self) -> str:
+        """Generate a tag for logging."""
         return f'SimulationProcess[index={self.index}, {self.state.parameters.tag()}, current_step{self.current_step}]'
 
     def _create_additional_updaters(self) -> List[Updater]:
